@@ -1,7 +1,9 @@
 package kafka
 
 import (
+	"context"
 	"fmt"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
 	"log"
 
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
@@ -240,7 +242,13 @@ func Provider() *schema.Provider {
 			},
 		},
 
-		ConfigureFunc: providerConfigure,
+		ConfigureContextFunc: func(_ context.Context, d *schema.ResourceData) (interface{}, diag.Diagnostics) {
+			c, err := providerConfigure(d)
+			if err != nil {
+				return nil, diag.FromErr(err)
+			}
+			return c, nil
+		},
 		ResourcesMap: map[string]*schema.Resource{
 			"kafka_topic":                 kafkaTopicResource(),
 			"kafka_acl":                   kafkaACLResource(),

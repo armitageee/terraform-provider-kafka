@@ -1,7 +1,9 @@
 package kafka
 
 import (
+	"context"
 	"fmt"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
 	"log"
 
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
@@ -9,7 +11,9 @@ import (
 
 func kafkaTopicDataSource() *schema.Resource {
 	return &schema.Resource{
-		Read: dataSourceTopicRead,
+		ReadContext: func(_ context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
+			return diag.FromErr(dataSourceTopicRead(d, meta))
+		},
 		Schema: map[string]*schema.Schema{
 			"name": {
 				Type:        schema.TypeString,

@@ -22,7 +22,8 @@ func kafkaACLResource() *schema.Resource {
 			StateContext: importACL,
 		},
 		SchemaVersion: 1,
-		MigrateState:  migrateKafkaAclState,
+		// Kept for states written before SchemaVersion 1 (StateUpgraders start after it).
+		MigrateState: migrateKafkaAclState, //nolint:staticcheck // SA1019: still required for old states
 		Schema: map[string]*schema.Schema{
 			"resource_name": {
 				Type:        schema.TypeString,
