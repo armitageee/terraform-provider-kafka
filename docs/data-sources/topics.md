@@ -3,12 +3,12 @@
 page_title: "kafka_topics Data Source - terraform-provider-kafka"
 subcategory: ""
 description: |-
-  
+  Provides a list of all Kafka topics in the cluster.
 ---
 
 # kafka_topics (Data Source)
 
-
+Provides a list of all Kafka topics in the cluster.
 
 
 

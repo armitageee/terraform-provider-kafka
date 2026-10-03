@@ -54,7 +54,7 @@ func kafkaTopicResource() *schema.Resource {
 				Type:             schema.TypeInt,
 				Required:         true,
 				ForceNew:         false,
-				Description:      "Number of replicas.",
+				Description:      "Number of replicas. If using Confluent Kafka and setting placement constraints, set this to `-1`.",
 				DiffSuppressFunc: replicationFactorDiffSuppressFunc,
 				ValidateDiagFunc: intEitherNegativeOneOrAtLeastOne(),
 			},
