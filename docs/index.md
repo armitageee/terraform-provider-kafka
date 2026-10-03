@@ -20,7 +20,7 @@ The Kafka provider is used to interact with [Apache Kafka](https://kafka.apache.
 - [AWS MSK Integration](guides/aws-msk-integration) - Complete MSK setup guide
 - [Migration Guide](guides/migration) - Migrate between setups and versions
 - [Troubleshooting Guide](guides/troubleshooting) - Common issues and solutions
-- [Import existing topics and ACLs with terraform query](guides/terraform-query) - `kafka_topic` and `kafka_acl` list resources (Terraform 1.14+)
+- [Import existing resources with terraform query](guides/terraform-query) - list resources for topics, ACLs, quotas and SCRAM credentials (Terraform 1.14+), audit data sources for OpenTofu
 
 ## Example Usage
 

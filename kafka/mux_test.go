@@ -70,6 +70,13 @@ func TestMuxServerSchemas(t *testing.T) {
 		}
 	}
 
+	for typ, want := range map[string]int{"kafka_quota": 2, "kafka_user_scram_credential": 2} {
+		is, ok := ids.IdentitySchemas[typ]
+		if !ok || len(is.IdentityAttributes) != want {
+			t.Errorf("%s identity schema = %+v, want %d attributes", typ, is, want)
+		}
+	}
+
 	meta, err := srv.GetMetadata(ctx, &tfprotov5.GetMetadataRequest{})
 	if err != nil {
 		t.Fatal(err)
@@ -78,7 +85,7 @@ func TestMuxServerSchemas(t *testing.T) {
 	for _, l := range meta.ListResources {
 		advertised[l.TypeName] = true
 	}
-	for _, want := range []string{"kafka_topic", "kafka_acl"} {
+	for _, want := range []string{"kafka_topic", "kafka_acl", "kafka_quota", "kafka_user_scram_credential"} {
 		if !advertised[want] {
 			t.Errorf("GetMetadata does not advertise the %s list resource", want)
 		}
@@ -154,6 +161,68 @@ func TestFilterACLs(t *testing.T) {
 		}
 		if strings.Join(got, ",") != strings.Join(c.want, ",") {
 			t.Errorf("filterACLs(%+v) = %v, want %v", c.f, got, c.want)
+		}
+	}
+}
+
+func TestFilterQuotas(t *testing.T) {
+	in := []Quota{
+		{EntityType: "user", EntityName: "bob"},
+		{EntityType: "client-id", EntityName: "orders-app"},
+		{EntityType: "user", EntityName: ""},
+		{EntityType: "user", EntityName: "alice", Ops: []QuotaOp{{Key: "producer_byte_rate", Value: 1048576}}},
+	}
+	ids := func(qs []Quota) string {
+		var out []string
+		for _, q := range qs {
+			out = append(out, q.ID())
+		}
+		return strings.Join(out, ",")
+	}
+	if got := ids(filterQuotas(in, "", "")); got != "alice|user,bob|user,entity-default|user,orders-app|client-id" {
+		t.Errorf("all: %s", got)
+	}
+	if got := ids(filterQuotas(in, "user", "")); got != "alice|user,bob|user,entity-default|user" {
+		t.Errorf("user: %s", got)
+	}
+	// A name prefix never matches the default quota.
+	if got := ids(filterQuotas(in, "", "a")); got != "alice|user" {
+		t.Errorf("prefix: %s", got)
+	}
+	if got := quotaDisplayName(in[3]); got != "user alice: producer_byte_rate=1.048576e+06" {
+		t.Errorf("display name: %s", got)
+	}
+	if got := quotaDisplayName(Quota{EntityType: "ip"}); got != "default ip: " {
+		t.Errorf("default display name: %q", got)
+	}
+}
+
+func TestImportQuotaFormats(t *testing.T) {
+	cases := map[string]struct{ typ, name, id string }{
+		"orders-app|client-id": {"client-id", "orders-app", "orders-app|client-id"},
+		"entity-default|user":  {"user", "", "entity-default|user"},
+		"client-id:orders-app": {"client-id", "orders-app", "orders-app|client-id"},
+		"user:":                {"user", "", "entity-default|user"},
+		"ip:10.0.0.1":          {"ip", "10.0.0.1", "10.0.0.1|ip"},
+	}
+	for in, want := range cases {
+		d := kafkaQuotaResource().TestResourceData()
+		d.SetId(in)
+		out, err := importQuota(context.Background(), d, nil)
+		if err != nil {
+			t.Errorf("%q: %v", in, err)
+			continue
+		}
+		got := out[0]
+		if got.Get("entity_type") != want.typ || got.Get("entity_name") != want.name || got.Id() != want.id {
+			t.Errorf("%q: got type=%v name=%v id=%v", in, got.Get("entity_type"), got.Get("entity_name"), got.Id())
+		}
+	}
+	for _, bad := range []string{"just-a-name", "group:x", "a|b|c"} {
+		d := kafkaQuotaResource().TestResourceData()
+		d.SetId(bad)
+		if _, err := importQuota(context.Background(), d, nil); err == nil {
+			t.Errorf("%q: expected an error", bad)
 		}
 	}
 }

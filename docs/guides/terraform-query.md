@@ -1,19 +1,26 @@
 ---
-page_title: "Import existing topics and ACLs with terraform query"
+page_title: "Import existing resources with terraform query"
 subcategory: ""
 description: |-
-  Discover topics and ACLs that already exist in a cluster with the kafka_topic and kafka_acl list resources and generate import blocks and configuration for them.
+  Discover topics, ACLs, quotas and SCRAM credentials that already exist in a cluster with list resources and generate import blocks and configuration for them.
 ---
 
-# Import existing topics and ACLs with `terraform query`
+# Import existing resources with `terraform query`
 
-Clusters usually have topics and ACLs that were created by hand, by applications
-or by another tool. The `kafka_topic` and `kafka_acl` **list resources** find them
-and let Terraform write the `import` blocks and resource configuration for you.
+Clusters usually have topics, ACLs, quotas and users that were created by hand,
+by applications or by another tool. Every resource of this provider has a
+**list resource** that finds them and lets Terraform write the `import` blocks
+and resource configuration for you.
 
-Requires **Terraform 1.14 or later** (`terraform query`) and provider `0.15.0`
-or later (`kafka_acl`: `0.16.0` or later).
-OpenTofu does not implement `query` yet.
+| List resource | Since | Filters |
+|---|---|---|
+| `kafka_topic` | 0.15.0 | `name_prefix`, `name_regex`, `include_internal` |
+| `kafka_acl` | 0.16.0 | `acl_principal`, `resource_type`, `resource_name_prefix` |
+| `kafka_quota` | 0.17.0 | `entity_type`, `entity_name_prefix` |
+| `kafka_user_scram_credential` | 0.17.0 | `scram_mechanism`, `username_prefix` |
+
+Requires **Terraform 1.14 or later** (`terraform query`).
+OpenTofu does not implement `query` yet; see [Auditing with OpenTofu](#auditing-with-opentofu).
 
 ## 1. Describe what to find
 
@@ -163,10 +170,77 @@ import {
 }
 ```
 
+## Quotas
+
+`list "kafka_quota"` returns every quota on a single entity, including default
+quotas (no `entity_name`). Quotas on combined entities (for example user +
+client-id) are skipped: `kafka_quota` manages one entity.
+
+```terraform
+list "kafka_quota" "users" {
+  provider = kafka
+  config {
+    entity_type = "user"
+  }
+}
+```
+
+## SCRAM credentials
+
+`list "kafka_user_scram_credential"` returns one result per user and mechanism.
+Kafka never returns passwords, so the generated configuration has none and
+`terraform plan` fails until you add one. Put the user's **current** password
+into `password_wo` and leave `password_wo_version` unset: then the import
+changes nothing. Setting `password_wo_version` makes the next apply re-set the
+password.
+
+```terraform
+resource "kafka_user_scram_credential" "services_0" {
+  provider         = kafka
+  username         = "svc-orders"
+  scram_mechanism  = "SCRAM-SHA-512"
+  scram_iterations = 4096
+  password_wo      = var.svc_orders_password # add by hand
+}
+```
+
+## Auditing with OpenTofu
+
+OpenTofu (and Terraform before 1.14) cannot run `terraform query`, but the
+same information is available through data sources with the same filters:
+
+| Data source | Returns |
+|---|---|
+| `kafka_cluster` | cluster ID, active controller, brokers |
+| `kafka_topics` | all topics with partitions, replication factor, config |
+| `kafka_acls` | ACLs (`acl_principal`, `resource_type`, `resource_name_prefix` filters) |
+| `kafka_quotas` | single-entity quotas, including defaults (`entity_type`, `entity_name_prefix`) |
+| `kafka_user_scram_credentials` | users and mechanisms, never passwords (`scram_mechanism`, `username_prefix`) |
+
+Every entry has an `id` that is the resource ID, so the data sources also give
+you what you need for `import` blocks:
+
+```terraform
+data "kafka_acls" "orders_service" {
+  acl_principal = "User:orders-service"
+}
+
+output "acl_import_ids" {
+  value = [for a in data.kafka_acls.orders_service.acls : a.id]
+}
+```
+
+```shell
+tofu apply -refresh-only   # or: tofu plan, then read the output
+tofu output acl_import_ids
+```
+
 ## Resource identity
 
-`kafka_topic` has a resource identity `{ name }`, `kafka_acl` the seven fields
-that make an ACL unique (the same ones as in its pipe-delimited ID). Besides
+Every resource has a resource identity: `kafka_topic` `{ name }`, `kafka_acl`
+the seven fields that make an ACL unique (the same ones as in its
+pipe-delimited ID), `kafka_quota` `{ entity_type, entity_name }`,
+`kafka_user_scram_credential` `{ username, scram_mechanism }`. Besides
 `terraform query` they can be used in hand-written import blocks:
 
 ```terraform

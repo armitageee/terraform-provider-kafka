@@ -20,8 +20,8 @@ func TestAcc_BasicQuota(t *testing.T) {
 
 	r.Test(t, r.TestCase{
 		ProtoV5ProviderFactories: protoV5ProviderFactories(),
-		PreCheck:          func() { testAccPreCheck(t) },
-		CheckDestroy:      testAccCheckQuotaDestroy,
+		PreCheck:                 func() { testAccPreCheck(t) },
+		CheckDestroy:             testAccCheckQuotaDestroy,
 		Steps: []r.TestStep{
 			{
 				Config: cfgs(t, bs, fmt.Sprintf(testResourceQuota1, quotaEntityName, "4000000")),
@@ -42,8 +42,8 @@ func TestAcc_QuotaConfigUpdate(t *testing.T) {
 
 	r.Test(t, r.TestCase{
 		ProtoV5ProviderFactories: protoV5ProviderFactories(),
-		PreCheck:          func() { testAccPreCheck(t) },
-		CheckDestroy:      testAccCheckQuotaDestroy,
+		PreCheck:                 func() { testAccPreCheck(t) },
+		CheckDestroy:             testAccCheckQuotaDestroy,
 		Steps: []r.TestStep{
 			{
 				Config: cfg(t, bs, fmt.Sprintf(testResourceQuota1, quotaEntityName, "4000000")),
@@ -62,8 +62,8 @@ func TestAcc_DefaultEntityBasicQuota(t *testing.T) {
 
 	r.Test(t, r.TestCase{
 		ProtoV5ProviderFactories: protoV5ProviderFactories(),
-		PreCheck:          func() { testAccPreCheck(t) },
-		CheckDestroy:      testAccCheckQuotaDestroy,
+		PreCheck:                 func() { testAccPreCheck(t) },
+		CheckDestroy:             testAccCheckQuotaDestroy,
 		Steps: []r.TestStep{
 			{
 				Config: cfgs(t, bs, fmt.Sprintf(testResourceQuotaDefault, "4000000")),
@@ -78,8 +78,8 @@ func TestAcc_DefaultEntityQuotaConfigUpdate(t *testing.T) {
 
 	r.Test(t, r.TestCase{
 		ProtoV5ProviderFactories: protoV5ProviderFactories(),
-		PreCheck:          func() { testAccPreCheck(t) },
-		CheckDestroy:      testAccCheckQuotaDestroy,
+		PreCheck:                 func() { testAccPreCheck(t) },
+		CheckDestroy:             testAccCheckQuotaDestroy,
 		Steps: []r.TestStep{
 			{
 				Config: cfg(t, bs, fmt.Sprintf(testResourceQuotaDefault, "4000000")),

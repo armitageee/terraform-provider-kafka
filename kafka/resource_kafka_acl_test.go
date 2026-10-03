@@ -24,8 +24,8 @@ func TestAcc_ACLCreateAndUpdate(t *testing.T) {
 
 	r.Test(t, r.TestCase{
 		ProtoV5ProviderFactories: protoV5ProviderFactories(),
-		PreCheck:          func() { testAccPreCheck(t) },
-		CheckDestroy:      func(s *terraform.State) error { return testAccCheckAclDestroy(aclResourceName) },
+		PreCheck:                 func() { testAccPreCheck(t) },
+		CheckDestroy:             func(s *terraform.State) error { return testAccCheckAclDestroy(aclResourceName) },
 		Steps: []r.TestStep{
 			{
 				Config: cfg(t, bs, fmt.Sprintf(testResourceACL_initialConfig, aclResourceName)),
@@ -79,8 +79,8 @@ func TestAcc_ACLDeletedOutsideOfTerraform(t *testing.T) {
 
 	r.Test(t, r.TestCase{
 		ProtoV5ProviderFactories: protoV5ProviderFactories(),
-		PreCheck:          func() { testAccPreCheck(t) },
-		CheckDestroy:      func(s *terraform.State) error { return testAccCheckAclDestroy(aclResourceName) },
+		PreCheck:                 func() { testAccPreCheck(t) },
+		CheckDestroy:             func(s *terraform.State) error { return testAccCheckAclDestroy(aclResourceName) },
 		Steps: []r.TestStep{
 			{
 				Config: cfg(t, bs, fmt.Sprintf(testResourceACL_initialConfig, aclResourceName)),

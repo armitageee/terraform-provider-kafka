@@ -23,8 +23,8 @@ func TestAcc_UserScramCredentialBasic(t *testing.T) {
 
 	r.Test(t, r.TestCase{
 		ProtoV5ProviderFactories: protoV5ProviderFactories(),
-		PreCheck:          func() { testAccPreCheck(t) },
-		CheckDestroy:      testAccCheckUserScramCredentialDestroy,
+		PreCheck:                 func() { testAccPreCheck(t) },
+		CheckDestroy:             testAccCheckUserScramCredentialDestroy,
 		Steps: []r.TestStep{
 			{
 				Config: cfgs(t, bs, fmt.Sprintf(testResourceUserScramCredential_SHA256, username)),
@@ -46,8 +46,8 @@ func TestAcc_UserScramCredentialWithIterations(t *testing.T) {
 
 	r.Test(t, r.TestCase{
 		ProtoV5ProviderFactories: protoV5ProviderFactories(),
-		PreCheck:          func() { testAccPreCheck(t) },
-		CheckDestroy:      testAccCheckUserScramCredentialDestroy,
+		PreCheck:                 func() { testAccPreCheck(t) },
+		CheckDestroy:             testAccCheckUserScramCredentialDestroy,
 		Steps: []r.TestStep{
 			{
 				Config: cfg(t, bs, fmt.Sprintf(testResourceUserScramCredential_WithIterations, username, 8192)),
@@ -69,8 +69,8 @@ func TestAcc_UserScramCredentialSHA512(t *testing.T) {
 
 	r.Test(t, r.TestCase{
 		ProtoV5ProviderFactories: protoV5ProviderFactories(),
-		PreCheck:          func() { testAccPreCheck(t) },
-		CheckDestroy:      testAccCheckUserScramCredentialDestroy,
+		PreCheck:                 func() { testAccPreCheck(t) },
+		CheckDestroy:             testAccCheckUserScramCredentialDestroy,
 		Steps: []r.TestStep{
 			{
 				Config: cfg(t, bs, fmt.Sprintf(testResourceUserScramCredential_SHA512, username)),
@@ -92,8 +92,8 @@ func TestAcc_UserScramCredentialConfigUpdate(t *testing.T) {
 
 	r.Test(t, r.TestCase{
 		ProtoV5ProviderFactories: protoV5ProviderFactories(),
-		PreCheck:          func() { testAccPreCheck(t) },
-		CheckDestroy:      testAccCheckUserScramCredentialDestroy,
+		PreCheck:                 func() { testAccPreCheck(t) },
+		CheckDestroy:             testAccCheckUserScramCredentialDestroy,
 		Steps: []r.TestStep{
 			{
 				Config: cfg(t, bs, fmt.Sprintf(testResourceUserScramCredential_WithIterations, username, 4096)),
@@ -119,8 +119,8 @@ func TestAcc_UserScramCredentialWriteOnly(t *testing.T) {
 
 	r.Test(t, r.TestCase{
 		ProtoV5ProviderFactories: protoV5ProviderFactories(),
-		PreCheck:          func() { testAccPreCheck(t) },
-		CheckDestroy:      testAccCheckUserScramCredentialDestroy,
+		PreCheck:                 func() { testAccPreCheck(t) },
+		CheckDestroy:             testAccCheckUserScramCredentialDestroy,
 		Steps: []r.TestStep{
 			{
 				Config: cfg(t, bs, fmt.Sprintf(testResourceUserScramCredential_WriteOnly, username)),
@@ -142,8 +142,8 @@ func TestAcc_UserScramCredentialWriteOnlyUpdate(t *testing.T) {
 
 	r.Test(t, r.TestCase{
 		ProtoV5ProviderFactories: protoV5ProviderFactories(),
-		PreCheck:          func() { testAccPreCheck(t) },
-		CheckDestroy:      testAccCheckUserScramCredentialDestroy,
+		PreCheck:                 func() { testAccPreCheck(t) },
+		CheckDestroy:             testAccCheckUserScramCredentialDestroy,
 		Steps: []r.TestStep{
 			{
 				Config: cfg(t, bs, fmt.Sprintf(testResourceUserScramCredential_WriteOnly, username)),
@@ -169,8 +169,8 @@ func TestAcc_UserScramCredentialWriteOnlyWithIterations(t *testing.T) {
 
 	r.Test(t, r.TestCase{
 		ProtoV5ProviderFactories: protoV5ProviderFactories(),
-		PreCheck:          func() { testAccPreCheck(t) },
-		CheckDestroy:      testAccCheckUserScramCredentialDestroy,
+		PreCheck:                 func() { testAccPreCheck(t) },
+		CheckDestroy:             testAccCheckUserScramCredentialDestroy,
 		Steps: []r.TestStep{
 			{
 				Config: cfg(t, bs, fmt.Sprintf(testResourceUserScramCredential_WriteOnlyWithIterations, username, 8192)),
