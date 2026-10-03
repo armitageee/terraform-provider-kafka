@@ -21,6 +21,17 @@ func kafkaACLResource() *schema.Resource {
 		Importer: &schema.ResourceImporter{
 			StateContext: importACL,
 		},
+		// Identity: the seven fields that make an ACL unique (the same ones the
+		// pipe-delimited ID is built from). Used by `terraform query` and import blocks.
+		Identity: &schema.ResourceIdentity{
+			SchemaFunc: func() map[string]*schema.Schema {
+				out := map[string]*schema.Schema{}
+				for _, k := range aclIdentityAttributes {
+					out[k] = &schema.Schema{Type: schema.TypeString, RequiredForImport: true}
+				}
+				return out
+			},
+		},
 		SchemaVersion: 1,
 		// Kept for states written before SchemaVersion 1 (StateUpgraders start after it).
 		MigrateState: migrateKafkaAclState, //nolint:staticcheck // SA1019: still required for old states
@@ -81,6 +92,9 @@ func aclCreate(ctx context.Context, d *schema.ResourceData, meta interface{}) di
 	}
 
 	d.SetId(a.String())
+	if err := setACLIdentity(d, a); err != nil {
+		return diag.FromErr(err)
+	}
 
 	// Wait for ACL to be visible in Kafka before returning
 	// This handles eventual consistency and ensures the ACL is actually created
@@ -154,7 +168,7 @@ func aclRead(ctx context.Context, d *schema.ResourceData, meta interface{}) diag
 
 			// Found the ACL, so no need to remove it from state
 			if a.String() == aclID.String() {
-				return nil
+				return diag.FromErr(setACLIdentity(d, a))
 			}
 		}
 	}
@@ -167,24 +181,73 @@ func aclRead(ctx context.Context, d *schema.ResourceData, meta interface{}) diag
 }
 
 func importACL(ctx context.Context, d *schema.ResourceData, m interface{}) ([]*schema.ResourceData, error) {
-	parts := strings.Split(d.Id(), "|")
-	if len(parts) == 7 {
-		errSet := errSetter{d: d}
-		errSet.Set("acl_principal", parts[0])
-		errSet.Set("acl_host", parts[1])
-		errSet.Set("acl_operation", parts[2])
-		errSet.Set("acl_permission_type", parts[3])
-		errSet.Set("resource_type", parts[4])
-		errSet.Set("resource_name", parts[5])
-		errSet.Set("resource_pattern_type_filter", parts[6])
-		if errSet.err != nil {
-			return nil, errSet.err
-		}
+	var parts []string
+	if d.Id() != "" {
+		parts = strings.Split(d.Id(), "|")
 	} else {
+		// Import by identity (import block with `identity`, or `terraform query`).
+		identity, err := d.Identity()
+		if err != nil {
+			return nil, err
+		}
+		for _, k := range aclIdentityAttributes {
+			parts = append(parts, identity.Get(k).(string))
+		}
+	}
+	if len(parts) != len(aclIdentityAttributes) {
 		return nil, fmt.Errorf("failed importing resource; expected format is acl_principal|acl_host|acl_operation|acl_permission_type|resource_type|resource_name|resource_pattern_type_filter - got %v segments instead of 7", len(parts))
 	}
 
+	errSet := errSetter{d: d}
+	for i, k := range aclIdentityAttributes {
+		errSet.Set(k, parts[i])
+	}
+	if errSet.err != nil {
+		return nil, errSet.err
+	}
+	a := aclInfo(d)
+	d.SetId(a.String())
+	if err := setACLIdentity(d, a); err != nil {
+		return nil, err
+	}
+
 	return []*schema.ResourceData{d}, nil
+}
+
+// aclIdentityAttributes are in ID order (see StringlyTypedACL.String).
+var aclIdentityAttributes = []string{
+	"acl_principal",
+	"acl_host",
+	"acl_operation",
+	"acl_permission_type",
+	"resource_type",
+	"resource_name",
+	"resource_pattern_type_filter",
+}
+
+func aclAttributes(a StringlyTypedACL) map[string]string {
+	return map[string]string{
+		"acl_principal":                a.ACL.Principal,
+		"acl_host":                     a.ACL.Host,
+		"acl_operation":                a.ACL.Operation,
+		"acl_permission_type":          a.ACL.PermissionType,
+		"resource_type":                a.Type,
+		"resource_name":                a.Name,
+		"resource_pattern_type_filter": a.PatternTypeFilter,
+	}
+}
+
+func setACLIdentity(d *schema.ResourceData, a StringlyTypedACL) error {
+	identity, err := d.Identity()
+	if err != nil {
+		return err
+	}
+	for k, v := range aclAttributes(a) {
+		if err := identity.Set(k, v); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 type errSetter struct {

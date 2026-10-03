@@ -31,6 +31,30 @@ func (a StringlyTypedACL) String() string {
 	return strings.Join([]string{a.ACL.Principal, a.ACL.Host, a.ACL.Operation, a.ACL.PermissionType, a.Type, a.Name, a.PatternTypeFilter}, "|")
 }
 
+// flattenACLs turns DescribeAcls results into one entry per ACL, in the same
+// string form the kafka_acl resource uses.
+func flattenACLs(in []*sarama.ResourceAcls) []StringlyTypedACL {
+	var out []StringlyTypedACL
+	for _, r := range in {
+		for _, acl := range r.Acls {
+			out = append(out, StringlyTypedACL{
+				ACL: ACL{
+					Principal:      acl.Principal,
+					Host:           acl.Host,
+					Operation:      ACLOperationToString(acl.Operation),
+					PermissionType: ACLPermissionTypeToString(acl.PermissionType),
+				},
+				Resource: Resource{
+					Type:              ACLResourceToString(r.ResourceType),
+					Name:              r.ResourceName,
+					PatternTypeFilter: r.ResourcePatternType.String(),
+				},
+			})
+		}
+	}
+	return out
+}
+
 func tfToAclCreation(s StringlyTypedACL) (*sarama.AclCreation, error) {
 	acl := &sarama.AclCreation{}
 

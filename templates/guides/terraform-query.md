@@ -1,17 +1,18 @@
 ---
-page_title: "Import existing topics with terraform query"
+page_title: "Import existing topics and ACLs with terraform query"
 subcategory: ""
 description: |-
-  Discover topics that already exist in a cluster with the kafka_topic list resource and generate import blocks and configuration for them.
+  Discover topics and ACLs that already exist in a cluster with the kafka_topic and kafka_acl list resources and generate import blocks and configuration for them.
 ---
 
-# Import existing topics with `terraform query`
+# Import existing topics and ACLs with `terraform query`
 
-Clusters usually have topics that were created by hand, by applications or by
-another tool. The `kafka_topic` **list resource** finds them and lets
-Terraform write the `import` blocks and resource configuration for you.
+Clusters usually have topics and ACLs that were created by hand, by applications
+or by another tool. The `kafka_topic` and `kafka_acl` **list resources** find them
+and let Terraform write the `import` blocks and resource configuration for you.
 
-Requires **Terraform 1.14 or later** (`terraform query`) and provider `0.15.0` or later.
+Requires **Terraform 1.14 or later** (`terraform query`) and provider `0.15.0`
+or later (`kafka_acl`: `0.16.0` or later).
 OpenTofu does not implement `query` yet.
 
 ## 1. Describe what to find
@@ -99,10 +100,74 @@ terraform apply
 terraform plan    # No changes.
 ```
 
+## ACLs
+
+`list "kafka_acl"` returns one result per ACL entry, i.e. per `kafka_acl`
+resource. The workflow is the same as for topics:
+
+```terraform
+# acls.tfquery.hcl
+list "kafka_acl" "orders_service" {
+  provider = kafka
+
+  config {
+    acl_principal        = "User:orders-service"
+    resource_type        = "Topic"
+    resource_name_prefix = "orders."
+  }
+}
+```
+
+Filter arguments (all optional, combined with AND):
+
+- `acl_principal` (String) Only ACLs for this principal, e.g. `User:alice` (exact match).
+- `resource_type` (String) Only ACLs on this resource type: `Topic`, `Group`, `Cluster`, `TransactionalID` or `DelegationToken`.
+- `resource_name_prefix` (String) Only ACLs whose `resource_name` starts with this prefix.
+
+```shell
+terraform query
+```
+
+```
+list.kafka_acl.orders_service   acl_host=*,acl_operation=Read,...   Allow User:orders-service Read Topic orders.v1 (Literal) from *
+list.kafka_acl.orders_service   acl_host=*,acl_operation=Write,...  Allow User:orders-service Write Topic orders.v1 (Literal) from *
+```
+
+`terraform query -generate-config-out=generated.tf` then writes a `kafka_acl`
+resource and an `import` block per ACL:
+
+```terraform
+resource "kafka_acl" "orders_service_0" {
+  provider                     = kafka
+  acl_host                     = "*"
+  acl_operation                = "Read"
+  acl_permission_type          = "Allow"
+  acl_principal                = "User:orders-service"
+  resource_name                = "orders.v1"
+  resource_pattern_type_filter = "Literal"
+  resource_type                = "Topic"
+}
+
+import {
+  to       = kafka_acl.orders_service_0
+  provider = kafka
+  identity = {
+    acl_host                     = "*"
+    acl_operation                = "Read"
+    acl_permission_type          = "Allow"
+    acl_principal                = "User:orders-service"
+    resource_name                = "orders.v1"
+    resource_pattern_type_filter = "Literal"
+    resource_type                = "Topic"
+  }
+}
+```
+
 ## Resource identity
 
-`kafka_topic` has a resource identity `{ name }`. Besides `terraform query` it
-can be used in hand-written import blocks:
+`kafka_topic` has a resource identity `{ name }`, `kafka_acl` the seven fields
+that make an ACL unique (the same ones as in its pipe-delimited ID). Besides
+`terraform query` they can be used in hand-written import blocks:
 
 ```terraform
 import {
@@ -111,4 +176,5 @@ import {
 }
 ```
 
-Importing by ID (`terraform import kafka_topic.payments payments`) keeps working.
+Importing by ID (`terraform import kafka_topic.payments payments`,
+`terraform import kafka_acl.x 'User:alice|*|Read|Allow|Topic|orders.v1|Literal'`) keeps working.

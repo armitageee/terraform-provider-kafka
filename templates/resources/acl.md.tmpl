@@ -35,6 +35,8 @@ Kafka ACLs can be imported using a pipe-delimited string containing all ACL prop
 
 -> **Note:** Use quotes around the import string to prevent shell expansion of the `*` character.
 
+Since 0.16.0 `kafka_acl` also has a resource identity (the same seven fields), so ACLs can be imported with an `import` block and `identity`, and existing ACLs can be discovered with the `kafka_acl` list resource — see [Import existing topics and ACLs with terraform query](../guides/terraform-query).
+
 {{ .SchemaMarkdown | trimspace }}
 
 ## Argument Reference
