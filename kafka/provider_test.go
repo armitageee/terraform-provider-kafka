@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hashicorp/terraform-plugin-go/tfprotov5"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
 )
@@ -35,10 +36,17 @@ func testAccPreCheck(t *testing.T) {
 	}
 }
 
-func overrideProviderFactory() map[string]func() (*schema.Provider, error) {
-	return map[string]func() (*schema.Provider, error){
-		"kafka": func() (*schema.Provider, error) {
-			return overrideProvider()
+// protoV5ProviderFactories serves the provider the way main.go does (SDKv2 +
+// framework muxed), so acceptance tests also cover list resources and
+// identity. Terraform configures it from the test config and KAFKA_* env.
+func protoV5ProviderFactories() map[string]func() (tfprotov5.ProviderServer, error) {
+	return map[string]func() (tfprotov5.ProviderServer, error){
+		"kafka": func() (tfprotov5.ProviderServer, error) {
+			newServer, err := NewMuxServer(context.Background(), Provider())
+			if err != nil {
+				return nil, err
+			}
+			return newServer(), nil
 		},
 	}
 }

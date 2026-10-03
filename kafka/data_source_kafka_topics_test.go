@@ -3,10 +3,10 @@ package kafka
 import (
 	"fmt"
 	"github.com/hashicorp/go-uuid"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
+	"github.com/hashicorp/terraform-plugin-testing/terraform"
 	"testing"
 
-	r "github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
+	r "github.com/hashicorp/terraform-plugin-testing/helper/resource"
 )
 
 func TestAcc_Topics(t *testing.T) {
@@ -18,7 +18,7 @@ func TestAcc_Topics(t *testing.T) {
 
 	bs := testBootstrapServers[0]
 	r.Test(t, r.TestCase{
-		ProviderFactories: overrideProviderFactory(),
+		ProtoV5ProviderFactories: protoV5ProviderFactories(),
 		Steps: []r.TestStep{
 			{
 				Config: cfg(t, bs, fmt.Sprintf(testDataSourceKafkaTopics, topicName)),

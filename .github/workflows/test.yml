@@ -56,16 +56,37 @@ jobs:
           }
 
   acctest:
+    # Job names stay "acctest (3.x)" / "acctest (4.x)" when versions change:
+    # they are required checks in the main ruleset.
+    name: acctest (${{ matrix.line }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - line: 3.x
+            kafka: 3.9.1
+          - line: 4.x
+            kafka: 4.3.1 # what h3llo-cloud runs
+    env:
+      KAFKA_IMAGE: apache/kafka-native:${{ matrix.kafka }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
+      # terraform-plugin-testing runs the real CLI; query tests need >= 1.14
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: 1.16.5
+          terraform_wrapper: false
       - name: Bring up Kafka
         run: docker compose up -d --wait
       - name: Acceptance tests
-        run: sleep 10 && make testacc
+        run: sleep 5 && make testacc
+      - name: Broker logs
+        if: failure()
+        run: docker compose logs --tail=200
 
   gssapi-e2e:
     # MIT KDC + Kafka (SASL/GSSAPI) in Docker; see e2e/gssapi

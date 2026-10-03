@@ -9,9 +9,9 @@ import (
 	"time"
 
 	uuid "github.com/hashicorp/go-uuid"
-	r "github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
+	r "github.com/hashicorp/terraform-plugin-testing/helper/resource"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
+	"github.com/hashicorp/terraform-plugin-testing/terraform"
 
 	"github.com/IBM/sarama"
 )
@@ -25,7 +25,7 @@ func TestAcc_BasicTopic(t *testing.T) {
 	topicName := fmt.Sprintf("syslog-%s", u)
 	bs := testBootstrapServers[0]
 	r.Test(t, r.TestCase{
-		ProviderFactories: overrideProviderFactory(),
+		ProtoV5ProviderFactories: protoV5ProviderFactories(),
 		PreCheck:          func() { testAccPreCheck(t) },
 		CheckDestroy:      testAccCheckTopicDestroy,
 		Steps: []r.TestStep{
@@ -47,7 +47,7 @@ func TestAcc_TopicConfigUpdate(t *testing.T) {
 	bs := testBootstrapServers[0]
 
 	r.Test(t, r.TestCase{
-		ProviderFactories: overrideProviderFactory(),
+		ProtoV5ProviderFactories: protoV5ProviderFactories(),
 		PreCheck:          func() { testAccPreCheck(t) },
 		CheckDestroy:      testAccCheckTopicDestroy,
 		Steps: []r.TestStep{
@@ -100,7 +100,7 @@ func TestAcc_TopicUpdatePartitions(t *testing.T) {
 	bs := testBootstrapServers[0]
 
 	r.Test(t, r.TestCase{
-		ProviderFactories: overrideProviderFactory(),
+		ProtoV5ProviderFactories: protoV5ProviderFactories(),
 		PreCheck:          func() { testAccPreCheck(t) },
 		CheckDestroy:      testAccCheckTopicDestroy,
 		Steps: []r.TestStep{
@@ -129,7 +129,7 @@ func TestAcc_TopicNegRepFactor(t *testing.T) {
 	bs := testBootstrapServers[0]
 
 	r.Test(t, r.TestCase{
-		ProviderFactories: overrideProviderFactory(),
+		ProtoV5ProviderFactories: protoV5ProviderFactories(),
 		PreCheck:          func() { testAccPreCheck(t) },
 		CheckDestroy:      testAccCheckTopicDestroy,
 		Steps: []r.TestStep{
@@ -174,7 +174,7 @@ func TestAcc_TopicAlterReplicationFactor(t *testing.T) {
 	}
 
 	r.Test(t, r.TestCase{
-		ProviderFactories: overrideProviderFactory(),
+		ProtoV5ProviderFactories: protoV5ProviderFactories(),
 		PreCheck:          func() { testAccPreCheck(t) },
 		CheckDestroy:      testAccCheckTopicDestroy,
 		Steps: []r.TestStep{

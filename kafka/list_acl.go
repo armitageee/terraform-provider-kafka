@@ -72,7 +72,7 @@ func (r *aclListResource) List(ctx context.Context, req list.ListRequest, stream
 		return
 	}
 
-	client := getSharedClient()
+	client := r.sdk.client()
 	if client == nil {
 		stream.Results = list.ListResultsStreamDiagnostics(listError("Provider not configured", "The kafka provider block was not configured before listing."))
 		return

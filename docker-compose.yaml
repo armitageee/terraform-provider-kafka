@@ -1,6 +1,14 @@
 services:
   kafka1:
-    image: apache/kafka-native:3.8.0
+    image: ${KAFKA_IMAGE:-apache/kafka-native:4.3.1}
+    restart: on-failure
+    # Brokers sometimes exit on first start (code 99) while the controller
+    # is not up yet; restart them, and let `up --wait` wait for the listener.
+    healthcheck:
+      test: ["CMD", "nc", "-z", "kafka1", "9090"]
+      interval: 2s
+      timeout: 2s
+      retries: 60
     volumes:
       - ./secrets:/etc/kafka/secrets
     environment:
@@ -38,7 +46,15 @@ services:
     ports:
       - "9092:9092"
   kafka2:
-    image: apache/kafka-native:3.8.0
+    image: ${KAFKA_IMAGE:-apache/kafka-native:4.3.1}
+    restart: on-failure
+    # Brokers sometimes exit on first start (code 99) while the controller
+    # is not up yet; restart them, and let `up --wait` wait for the listener.
+    healthcheck:
+      test: ["CMD", "nc", "-z", "kafka2", "9090"]
+      interval: 2s
+      timeout: 2s
+      retries: 60
     volumes:
       - ./secrets:/etc/kafka/secrets
     environment:
@@ -76,7 +92,15 @@ services:
     ports:
       - "9093:9092"
   kafka3:
-    image: apache/kafka-native:3.8.0
+    image: ${KAFKA_IMAGE:-apache/kafka-native:4.3.1}
+    restart: on-failure
+    # Brokers sometimes exit on first start (code 99) while the controller
+    # is not up yet; restart them, and let `up --wait` wait for the listener.
+    healthcheck:
+      test: ["CMD", "nc", "-z", "kafka3", "9090"]
+      interval: 2s
+      timeout: 2s
+      retries: 60
     volumes:
       - ./secrets:/etc/kafka/secrets
     environment:
