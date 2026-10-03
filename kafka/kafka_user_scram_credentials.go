@@ -145,3 +145,27 @@ func prepareDelete(userScramCredential UserScramCredential) sarama.AlterUserScra
 	ret.Mechanism = userScramCredential.Mechanism
 	return ret
 }
+
+// ListUserScramCredentials returns one entry per user and mechanism. Kafka
+// never returns passwords (only salted hashes stay on the brokers).
+func (c *Client) ListUserScramCredentials() ([]UserScramCredential, error) {
+	admin, err := sarama.NewClusterAdminFromClient(c.client)
+	if err != nil {
+		return nil, err
+	}
+	// No user names = describe all users.
+	results, err := admin.DescribeUserScramCredentials(nil)
+	if err != nil {
+		return nil, err
+	}
+	res := []UserScramCredential{}
+	for _, r := range results {
+		if r.ErrorCode != sarama.ErrNoError {
+			return nil, fmt.Errorf("error describing user scram credential %s: %s", r.User, r.ErrorCode)
+		}
+		for _, info := range r.CredentialInfos {
+			res = append(res, UserScramCredential{Name: r.User, Mechanism: info.Mechanism, Iterations: info.Iterations})
+		}
+	}
+	return res, nil
+}

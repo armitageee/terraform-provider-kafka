@@ -433,13 +433,13 @@ func TestConfig_isAWSMSKServerless(t *testing.T) {
 			want:             true,
 		},
 		{
-			name:             "Multiple servers with one MSK Serverless",
+			name: "Multiple servers with one MSK Serverless",
 			bootstrapServers: []string{
 				"regular-kafka:9092",
 				"kafka-serverless.us-west-2.amazonaws.com:9092",
 				"another-kafka:9092",
 			},
-			want:             true,
+			want: true,
 		},
 		{
 			name:             "Regular MSK endpoint (not serverless)",
@@ -452,13 +452,13 @@ func TestConfig_isAWSMSKServerless(t *testing.T) {
 			want:             false,
 		},
 		{
-			name:             "Multiple non-MSK-serverless servers",
+			name: "Multiple non-MSK-serverless servers",
 			bootstrapServers: []string{
 				"kafka1:9092",
 				"kafka2:9092",
 				"b-1.cluster.xyz.kafka.us-east-1.amazonaws.com:9092",
 			},
-			want:             false,
+			want: false,
 		},
 		{
 			name:             "Empty bootstrap servers",

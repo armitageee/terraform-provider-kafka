@@ -164,3 +164,33 @@ func (c *Client) DescribeQuota(entityType string, entityName string) (*Quota, er
 
 	return &res[0], err
 }
+
+// ListQuotas returns every single-entity quota in the cluster (named and
+// default ones). Composite quotas (e.g. user + client-id) are skipped: the
+// kafka_quota resource manages one entity at a time.
+func (c *Client) ListQuotas() ([]Quota, error) {
+	admin, err := sarama.NewClusterAdminFromClient(c.client)
+	if err != nil {
+		return nil, err
+	}
+	entries, err := admin.DescribeClientQuotas(nil, false)
+	if err != nil {
+		return nil, err
+	}
+	res := []Quota{}
+	for _, e := range entries {
+		if len(e.Entity) != 1 {
+			continue
+		}
+		ops := []QuotaOp{}
+		for k, v := range e.Values {
+			ops = append(ops, QuotaOp{Key: k, Value: v})
+		}
+		res = append(res, Quota{
+			EntityType: string(e.Entity[0].EntityType),
+			EntityName: e.Entity[0].Name,
+			Ops:        ops,
+		})
+	}
+	return res, nil
+}

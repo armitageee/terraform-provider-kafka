@@ -213,3 +213,17 @@ func (c *LazyClient) TopicNames() ([]string, error) {
 	}
 	return c.inner.client.Topics()
 }
+
+func (c *LazyClient) ListQuotas() ([]Quota, error) {
+	if err := c.init(); err != nil {
+		return nil, err
+	}
+	return c.inner.ListQuotas()
+}
+
+func (c *LazyClient) ListUserScramCredentials() ([]UserScramCredential, error) {
+	if err := c.init(); err != nil {
+		return nil, err
+	}
+	return c.inner.ListUserScramCredentials()
+}

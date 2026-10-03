@@ -9,8 +9,8 @@ import (
 	"time"
 
 	uuid "github.com/hashicorp/go-uuid"
-	r "github.com/hashicorp/terraform-plugin-testing/helper/resource"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
+	r "github.com/hashicorp/terraform-plugin-testing/helper/resource"
 	"github.com/hashicorp/terraform-plugin-testing/terraform"
 
 	"github.com/IBM/sarama"
@@ -26,8 +26,8 @@ func TestAcc_BasicTopic(t *testing.T) {
 	bs := testBootstrapServers[0]
 	r.Test(t, r.TestCase{
 		ProtoV5ProviderFactories: protoV5ProviderFactories(),
-		PreCheck:          func() { testAccPreCheck(t) },
-		CheckDestroy:      testAccCheckTopicDestroy,
+		PreCheck:                 func() { testAccPreCheck(t) },
+		CheckDestroy:             testAccCheckTopicDestroy,
 		Steps: []r.TestStep{
 			{
 				Config: cfg(t, bs, fmt.Sprintf(testResourceTopic_noConfig, topicName)),
@@ -48,8 +48,8 @@ func TestAcc_TopicConfigUpdate(t *testing.T) {
 
 	r.Test(t, r.TestCase{
 		ProtoV5ProviderFactories: protoV5ProviderFactories(),
-		PreCheck:          func() { testAccPreCheck(t) },
-		CheckDestroy:      testAccCheckTopicDestroy,
+		PreCheck:                 func() { testAccPreCheck(t) },
+		CheckDestroy:             testAccCheckTopicDestroy,
 		Steps: []r.TestStep{
 			{
 				Config: cfg(t, bs, fmt.Sprintf(testResourceTopic_initialConfig, topicName)),
@@ -101,8 +101,8 @@ func TestAcc_TopicUpdatePartitions(t *testing.T) {
 
 	r.Test(t, r.TestCase{
 		ProtoV5ProviderFactories: protoV5ProviderFactories(),
-		PreCheck:          func() { testAccPreCheck(t) },
-		CheckDestroy:      testAccCheckTopicDestroy,
+		PreCheck:                 func() { testAccPreCheck(t) },
+		CheckDestroy:             testAccCheckTopicDestroy,
 		Steps: []r.TestStep{
 			{
 				Config: cfg(t, bs, fmt.Sprintf(testResourceTopic_initialConfig, topicName)),
@@ -130,8 +130,8 @@ func TestAcc_TopicNegRepFactor(t *testing.T) {
 
 	r.Test(t, r.TestCase{
 		ProtoV5ProviderFactories: protoV5ProviderFactories(),
-		PreCheck:          func() { testAccPreCheck(t) },
-		CheckDestroy:      testAccCheckTopicDestroy,
+		PreCheck:                 func() { testAccPreCheck(t) },
+		CheckDestroy:             testAccCheckTopicDestroy,
 		Steps: []r.TestStep{
 			{
 				Config: cfg(t, bs, fmt.Sprintf(testResourceTopic_initialConfig, topicName)),
@@ -175,8 +175,8 @@ func TestAcc_TopicAlterReplicationFactor(t *testing.T) {
 
 	r.Test(t, r.TestCase{
 		ProtoV5ProviderFactories: protoV5ProviderFactories(),
-		PreCheck:          func() { testAccPreCheck(t) },
-		CheckDestroy:      testAccCheckTopicDestroy,
+		PreCheck:                 func() { testAccPreCheck(t) },
+		CheckDestroy:             testAccCheckTopicDestroy,
 		Steps: []r.TestStep{
 			{
 				Config: cfg(t, bs, fmt.Sprintf(testResourceTopic_updateRF, topicName, 1, 7)),

@@ -103,6 +103,16 @@ func kafkaUserScramCredentialResource() *schema.Resource {
 		Importer: &schema.ResourceImporter{
 			StateContext: importSCRAM,
 		},
+		// Identity: user and mechanism. The password cannot be read back from
+		// Kafka, so an imported credential needs password_wo in config.
+		Identity: &schema.ResourceIdentity{
+			SchemaFunc: func() map[string]*schema.Schema {
+				return map[string]*schema.Schema{
+					"username":        {Type: schema.TypeString, RequiredForImport: true, Description: "The name of the credential."},
+					"scram_mechanism": {Type: schema.TypeString, RequiredForImport: true, Description: "SCRAM-SHA-256 or SCRAM-SHA-512."},
+				}
+			},
+		},
 		CustomizeDiff: validatePasswordFields,
 		Schema: map[string]*schema.Schema{
 			"username": {
@@ -156,7 +166,17 @@ func kafkaUserScramCredentialResource() *schema.Resource {
 }
 
 func importSCRAM(ctx context.Context, d *schema.ResourceData, m interface{}) ([]*schema.ResourceData, error) {
-	parts := strings.Split(d.Id(), "|")
+	var parts []string
+	if d.Id() != "" {
+		parts = strings.Split(d.Id(), "|")
+	} else {
+		// Import by identity (import block with `identity`, or `terraform query`).
+		identity, err := d.Identity()
+		if err != nil {
+			return nil, err
+		}
+		parts = []string{identity.Get("username").(string), identity.Get("scram_mechanism").(string)}
+	}
 	if len(parts) == 2 {
 		// New format: username|scram_mechanism (for write-only passwords)
 		errSet := errSetter{d: d}
@@ -179,6 +199,11 @@ func importSCRAM(ctx context.Context, d *schema.ResourceData, m interface{}) ([]
 		return nil, fmt.Errorf("failed importing resource; expected format is username|scram_mechanism (for write-only passwords) or username|scram_mechanism|password (legacy) - got %v segments instead of 2 or 3", len(parts))
 	}
 
+	// The ID never carries the password, whatever import form was used.
+	d.SetId(strings.Join(parts[:2], "|"))
+	if err := setSCRAMIdentity(d, parts[0], parts[1]); err != nil {
+		return nil, err
+	}
 	return []*schema.ResourceData{d}, nil
 }
 
@@ -213,7 +238,7 @@ func userScramCredentialCreate(ctx context.Context, d *schema.ResourceData, meta
 	}
 
 	d.SetId(userScramCredential.ID())
-	return nil
+	return diag.FromErr(setSCRAMIdentity(d, userScramCredential.Name, userScramCredential.Mechanism.String()))
 }
 
 func userScramCredentialCreatedFunc(client *LazyClient, usc UserScramCredential) retry.StateRefreshFunc {
@@ -259,7 +284,18 @@ func userScramCredentialRead(ctx context.Context, d *schema.ResourceData, meta i
 		return diag.FromErr(errSet.err)
 	}
 
-	return nil
+	return diag.FromErr(setSCRAMIdentity(d, userScramCredential.Name, userScramCredential.Mechanism.String()))
+}
+
+func setSCRAMIdentity(d *schema.ResourceData, username, mechanism string) error {
+	identity, err := d.Identity()
+	if err != nil {
+		return err
+	}
+	if err := identity.Set("username", username); err != nil {
+		return err
+	}
+	return identity.Set("scram_mechanism", mechanism)
 }
 
 func userScramCredentialUpdate(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {

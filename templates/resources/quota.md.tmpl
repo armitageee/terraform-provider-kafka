@@ -29,9 +29,11 @@ The `kafka_quota` resource manages Kafka quotas, which are used to limit resourc
 
 ## Import
 
-Kafka quotas can be imported using the entity type and name:
+Kafka quotas can be imported by entity type and name (import works since 0.17.0):
 
 {{codefile "shell" "examples/resources/kafka_quota/import.sh"}}
+
+`kafka_quota` also has a resource identity `{ entity_type, entity_name }` (omit `entity_name` for a default quota), so quotas can be imported with an `import` block and `identity`, and found with the `kafka_quota` list resource — see [Import existing resources with terraform query](../guides/terraform-query).
 
 {{ .SchemaMarkdown | trimspace }}
 

@@ -121,3 +121,157 @@ list "kafka_acl" "test" {
 		},
 	})
 }
+
+func TestAcc_QuotaIdentityImportAndQuery(t *testing.T) {
+	t.Parallel()
+	u, err := uuid.GenerateUUID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	name := fmt.Sprintf("identity-%s", u)
+	bs := testBootstrapServers[0]
+	identity := map[string]knownvalue.Check{
+		"entity_type": knownvalue.StringExact("client-id"),
+		"entity_name": knownvalue.StringExact(name),
+	}
+	config := cfg(t, bs, fmt.Sprintf(testResourceQuota1, name, "4000000"))
+
+	r.Test(t, r.TestCase{
+		ProtoV5ProviderFactories: protoV5ProviderFactories(),
+		TerraformVersionChecks:   requireQuery,
+		PreCheck:                 func() { testAccPreCheck(t) },
+		CheckDestroy:             testAccCheckQuotaDestroy,
+		Steps: []r.TestStep{
+			{
+				Config:            config,
+				ConfigStateChecks: []statecheck.StateCheck{statecheck.ExpectIdentity("kafka_quota.test1", identity)},
+			},
+			{
+				// Import by ID was not wired up before 0.17 although documented.
+				ResourceName:      "kafka_quota.test1",
+				ImportState:       true,
+				ImportStateVerify: true,
+				ImportStateId:     "client-id:" + name,
+				Config:            config,
+			},
+			{
+				ResourceName:    "kafka_quota.test1",
+				ImportState:     true,
+				ImportStateKind: r.ImportBlockWithResourceIdentity,
+				Config:          config,
+			},
+			{
+				Query: true,
+				Config: fmt.Sprintf(`
+list "kafka_quota" "test" {
+  provider = kafka
+  config {
+    entity_type        = "client-id"
+    entity_name_prefix = %q
+  }
+}
+`, name),
+				QueryResultChecks: []querycheck.QueryResultCheck{
+					querycheck.ExpectLength("kafka_quota.test", 1),
+					querycheck.ExpectIdentity("kafka_quota.test", identity),
+				},
+			},
+		},
+	})
+}
+
+// Not parallel: the default client-id quota is shared with the other default
+// quota tests.
+func TestAcc_DefaultQuotaImport(t *testing.T) {
+	bs := testBootstrapServers[0]
+	config := cfg(t, bs, fmt.Sprintf(testResourceQuotaDefault, "4000000"))
+
+	r.Test(t, r.TestCase{
+		ProtoV5ProviderFactories: protoV5ProviderFactories(),
+		TerraformVersionChecks:   requireQuery,
+		PreCheck:                 func() { testAccPreCheck(t) },
+		CheckDestroy:             testAccCheckQuotaDestroy,
+		Steps: []r.TestStep{
+			{
+				Config: config,
+				ConfigStateChecks: []statecheck.StateCheck{statecheck.ExpectIdentity("kafka_quota.test1", map[string]knownvalue.Check{
+					"entity_type": knownvalue.StringExact("client-id"),
+					"entity_name": knownvalue.StringExact(""),
+				})},
+			},
+			{
+				ResourceName:      "kafka_quota.test1",
+				ImportState:       true,
+				ImportStateVerify: true,
+				ImportStateId:     "entity-default|client-id",
+				Config:            config,
+			},
+			{
+				ResourceName:    "kafka_quota.test1",
+				ImportState:     true,
+				ImportStateKind: r.ImportBlockWithResourceIdentity,
+				Config:          config,
+			},
+		},
+	})
+}
+
+// No password_wo_version: after import the state has none either, so the
+// import plan is a no-op. The password itself is write-only and not compared.
+const testResourceUserScramCredential_ImportWriteOnly = `
+resource "kafka_user_scram_credential" "test" {
+  username        = "%s"
+  scram_mechanism = "SCRAM-SHA-512"
+  password_wo     = "write-only-test"
+}
+`
+
+func TestAcc_UserScramCredentialIdentityImportAndQuery(t *testing.T) {
+	t.Parallel()
+	u, err := uuid.GenerateUUID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	name := fmt.Sprintf("identity-%s", u)
+	bs := testBootstrapServers[0]
+	identity := map[string]knownvalue.Check{
+		"username":        knownvalue.StringExact(name),
+		"scram_mechanism": knownvalue.StringExact("SCRAM-SHA-512"),
+	}
+	config := cfg(t, bs, fmt.Sprintf(testResourceUserScramCredential_ImportWriteOnly, name))
+
+	r.Test(t, r.TestCase{
+		ProtoV5ProviderFactories: protoV5ProviderFactories(),
+		TerraformVersionChecks:   requireQuery,
+		PreCheck:                 func() { testAccPreCheck(t) },
+		CheckDestroy:             testAccCheckUserScramCredentialDestroy,
+		Steps: []r.TestStep{
+			{
+				Config:            config,
+				ConfigStateChecks: []statecheck.StateCheck{statecheck.ExpectIdentity("kafka_user_scram_credential.test", identity)},
+			},
+			{
+				ResourceName:    "kafka_user_scram_credential.test",
+				ImportState:     true,
+				ImportStateKind: r.ImportBlockWithResourceIdentity,
+				Config:          config,
+			},
+			{
+				Query: true,
+				Config: fmt.Sprintf(`
+list "kafka_user_scram_credential" "test" {
+  provider = kafka
+  config {
+    scram_mechanism = "SCRAM-SHA-512"
+    username_prefix = %q
+  }
+}
+`, name),
+				QueryResultChecks: []querycheck.QueryResultCheck{
+					querycheck.ExpectLength("kafka_user_scram_credential.test", 1),
+					querycheck.ExpectIdentity("kafka_user_scram_credential.test", identity),
+				},
+			},
+		},
+	})
+}
