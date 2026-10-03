@@ -286,7 +286,7 @@ func TestConfig_NewKafkaConfig_InvalidSASLMechanism(t *testing.T) {
 		t.Fatal("Expected error for invalid SASL mechanism, got nil")
 	}
 
-	expectedMsg := `invalid sasl mechanism "invalid-mechanism": can only be "scram-sha256", "scram-sha512", "aws-iam", "oauthbearer" or "plain"`
+	expectedMsg := `invalid sasl mechanism "invalid-mechanism": can only be "scram-sha256", "scram-sha512", "aws-iam", "oauthbearer", "gssapi" or "plain"`
 	if err.Error() != expectedMsg {
 		t.Errorf("Expected error message %q, got %q", expectedMsg, err.Error())
 	}

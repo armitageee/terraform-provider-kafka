@@ -1,7 +1,9 @@
 package kafka
 
 import (
+	"context"
 	"fmt"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
 	"log"
 
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
@@ -163,7 +165,62 @@ func Provider() *schema.Provider {
 				Type:        schema.TypeString,
 				Optional:    true,
 				DefaultFunc: schema.EnvDefaultFunc("KAFKA_SASL_MECHANISM", "plain"),
-				Description: "SASL mechanism, can be plain, scram-sha512, scram-sha256, aws-iam",
+				Description: "SASL mechanism, can be plain, scram-sha512, scram-sha256, aws-iam, oauthbearer, gssapi",
+			},
+			"sasl_gssapi_service_name": {
+				Type:        schema.TypeString,
+				Optional:    true,
+				DefaultFunc: schema.EnvDefaultFunc("KAFKA_SASL_GSSAPI_SERVICE_NAME", defaultGSSAPIServiceName),
+				Description: "Kerberos service name of the brokers (the `primary` of their principal), when using sasl mechanism gssapi.",
+			},
+			"sasl_gssapi_principal": {
+				Type:        schema.TypeString,
+				Optional:    true,
+				DefaultFunc: schema.EnvDefaultFunc("KAFKA_SASL_GSSAPI_PRINCIPAL", nil),
+				Description: "Client principal, e.g. `terraform/ci@EXAMPLE.COM`. Username and realm are taken from it. With a credentials cache it may be omitted (read from the cache).",
+			},
+			"sasl_gssapi_username": {
+				Type:        schema.TypeString,
+				Optional:    true,
+				DefaultFunc: schema.EnvDefaultFunc("KAFKA_SASL_GSSAPI_USERNAME", nil),
+				Description: "Principal without the realm. Overrides the one derived from `sasl_gssapi_principal`.",
+			},
+			"sasl_gssapi_realm": {
+				Type:        schema.TypeString,
+				Optional:    true,
+				DefaultFunc: schema.EnvDefaultFunc("KAFKA_SASL_GSSAPI_REALM", nil),
+				Description: "Kerberos realm. Defaults to the principal's realm, the credentials cache, then `default_realm` in krb5.conf.",
+			},
+			"sasl_gssapi_keytab_path": {
+				Type:        schema.TypeString,
+				Optional:    true,
+				DefaultFunc: schema.EnvDefaultFunc("KAFKA_SASL_GSSAPI_KEYTAB_PATH", nil),
+				Description: "Path to a keytab. When set, keytab authentication is used.",
+			},
+			"sasl_gssapi_password": {
+				Type:        schema.TypeString,
+				Optional:    true,
+				Sensitive:   true,
+				DefaultFunc: schema.EnvDefaultFunc("KAFKA_SASL_GSSAPI_PASSWORD", nil),
+				Description: "Kerberos password. Used when no keytab is set.",
+			},
+			"sasl_gssapi_ccache_path": {
+				Type:        schema.TypeString,
+				Optional:    true,
+				DefaultFunc: schema.EnvDefaultFunc("KAFKA_SASL_GSSAPI_CCACHE_PATH", nil),
+				Description: "Credentials cache used when neither keytab nor password is set (e.g. after `kinit`). Defaults to `$KRB5CCNAME`, then `/tmp/krb5cc_<uid>`. Only `FILE:` caches are supported.",
+			},
+			"sasl_gssapi_kerberos_config_path": {
+				Type:        schema.TypeString,
+				Optional:    true,
+				DefaultFunc: schema.EnvDefaultFunc("KAFKA_SASL_GSSAPI_KRB5_CONF", nil),
+				Description: "Path to krb5.conf. Defaults to `$KRB5_CONFIG`, then `/etc/krb5.conf`.",
+			},
+			"sasl_gssapi_disable_pafxfast": {
+				Type:        schema.TypeBool,
+				Optional:    true,
+				DefaultFunc: schema.EnvDefaultFunc("KAFKA_SASL_GSSAPI_DISABLE_PAFXFAST", true),
+				Description: "Disable PA-FX-FAST. Required for Active Directory and most KDCs that do not support it.",
 			},
 			"skip_tls_verify": {
 				Type:        schema.TypeBool,
@@ -185,7 +242,13 @@ func Provider() *schema.Provider {
 			},
 		},
 
-		ConfigureFunc: providerConfigure,
+		ConfigureContextFunc: func(_ context.Context, d *schema.ResourceData) (interface{}, diag.Diagnostics) {
+			c, err := providerConfigure(d)
+			if err != nil {
+				return nil, diag.FromErr(err)
+			}
+			return c, nil
+		},
 		ResourcesMap: map[string]*schema.Resource{
 			"kafka_topic":                 kafkaTopicResource(),
 			"kafka_acl":                   kafkaACLResource(),
@@ -206,9 +269,9 @@ func providerConfigure(d *schema.ResourceData) (interface{}, error) {
 
 	saslMechanism := d.Get("sasl_mechanism").(string)
 	switch saslMechanism {
-	case "scram-sha512", "scram-sha256", "aws-iam", "oauthbearer", "plain":
+	case "scram-sha512", "scram-sha256", "aws-iam", "oauthbearer", "plain", "gssapi":
 	default:
-		return nil, fmt.Errorf("[ERROR] Invalid sasl mechanism \"%s\": can only be \"scram-sha256\", \"scram-sha512\", \"aws-iam\", \"oauthbearer\" or \"plain\"", saslMechanism)
+		return nil, fmt.Errorf("[ERROR] Invalid sasl mechanism \"%s\": can only be \"scram-sha256\", \"scram-sha512\", \"aws-iam\", \"oauthbearer\", \"gssapi\" or \"plain\"", saslMechanism)
 	}
 
 	config := &Config{
@@ -235,8 +298,19 @@ func providerConfigure(d *schema.ResourceData) (interface{}, error) {
 		SASLAWSCredsDebug:                      d.Get("sasl_aws_creds_debug").(bool),
 		SASLOAuthScopes:                        stringSliceFromResourceData("sasl_oauth_scopes", d),
 		SASLMechanism:                          saslMechanism,
-		TLSEnabled:                             d.Get("tls_enabled").(bool),
-		Timeout:                                d.Get("timeout").(int),
+		SASLGSSAPI: GSSAPIConfig{
+			ServiceName:        d.Get("sasl_gssapi_service_name").(string),
+			Principal:          d.Get("sasl_gssapi_principal").(string),
+			Username:           d.Get("sasl_gssapi_username").(string),
+			Realm:              d.Get("sasl_gssapi_realm").(string),
+			Password:           d.Get("sasl_gssapi_password").(string),
+			KeyTabPath:         d.Get("sasl_gssapi_keytab_path").(string),
+			CCachePath:         d.Get("sasl_gssapi_ccache_path").(string),
+			KerberosConfigPath: d.Get("sasl_gssapi_kerberos_config_path").(string),
+			DisablePAFXFAST:    d.Get("sasl_gssapi_disable_pafxfast").(bool),
+		},
+		TLSEnabled: d.Get("tls_enabled").(bool),
+		Timeout:    d.Get("timeout").(int),
 	}
 
 	if config.CACert == "" {

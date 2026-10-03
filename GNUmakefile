@@ -19,4 +19,9 @@ testacc:
 	KAFKA_ENABLE_TLS=true \
 	TF_ACC=1 go test ./kafka -v $(TESTARGS) -timeout 9m -count=1
 
-.PHONY: build test testacc
+# SASL/GSSAPI against a throwaway MIT KDC + Kafka (KRaft) in Docker
+test-gssapi-e2e:
+	docker compose -f e2e/gssapi/docker-compose.yaml run --rm client; \
+	rc=$$?; docker compose -f e2e/gssapi/docker-compose.yaml down -v; exit $$rc
+
+.PHONY: build test testacc test-gssapi-e2e

@@ -16,6 +16,7 @@ This guide covers all supported authentication methods for connecting to Apache 
 - [SASL/SCRAM Authentication](#saslscram-authentication)
 - [AWS IAM Authentication](#aws-iam-authentication)
 - [OAuth2/OIDC Authentication](#oauth2oidc-authentication)
+- [Kerberos (SASL/GSSAPI) Authentication](#kerberos-saslgssapi-authentication)
 - [Troubleshooting](#troubleshooting)
 
 ## TLS/SSL Authentication
@@ -257,6 +258,70 @@ provider "kafka" {
   sasl_oauth_scopes = ["kafka:read", "kafka:write", "kafka:admin"]
 }
 ```
+
+## Kerberos (SASL/GSSAPI) Authentication
+
+Use `sasl_mechanism = "gssapi"` for clusters secured with Kerberos (MIT KDC, Active Directory, Cloudera/CDP). The credential source is picked in this order:
+
+1. **Keytab** — `sasl_gssapi_keytab_path` is set (recommended for CI).
+2. **Password** — `sasl_gssapi_password` is set.
+3. **Credentials cache** — otherwise; e.g. after `kinit`. Path: `sasl_gssapi_ccache_path`, then `$KRB5CCNAME`, then `/tmp/krb5cc_<uid>`. Only `FILE:` caches are supported.
+
+The realm and user name come from `sasl_gssapi_principal` (`primary[/instance]@REALM`). With a credentials cache the principal can be omitted — it is read from the cache. If the principal has no realm, `default_realm` from krb5.conf is used.
+
+### Keytab (CI/CD)
+
+```terraform
+provider "kafka" {
+  bootstrap_servers = ["broker1.example.com:9093"]
+  tls_enabled       = true
+  ca_cert           = file("ca.pem")
+
+  sasl_mechanism                   = "gssapi"
+  sasl_gssapi_service_name         = "kafka" # primary of the broker principal kafka/<host>@REALM
+  sasl_gssapi_principal            = "terraform/ci@EXAMPLE.COM"
+  sasl_gssapi_keytab_path          = "/run/secrets/terraform.keytab"
+  sasl_gssapi_kerberos_config_path = "/etc/krb5.conf"
+}
+```
+
+### Credentials cache (developer laptop)
+
+```shell
+kinit alice@EXAMPLE.COM
+export KAFKA_SASL_MECHANISM=gssapi
+terraform plan
+```
+
+```terraform
+provider "kafka" {
+  bootstrap_servers = ["broker1.example.com:9093"]
+  sasl_mechanism    = "gssapi"
+  # principal and cache are taken from the kinit session ($KRB5CCNAME)
+}
+```
+
+On macOS the default cache is `API:`; use a file cache: `KRB5CCNAME=FILE:/tmp/krb5cc_$(id -u) kinit alice@EXAMPLE.COM`.
+
+### Password
+
+```terraform
+provider "kafka" {
+  bootstrap_servers     = ["broker1.example.com:9093"]
+  sasl_mechanism        = "gssapi"
+  sasl_gssapi_principal = "alice@EXAMPLE.COM"
+  sasl_gssapi_password  = var.kerberos_password
+}
+```
+
+Every `sasl_gssapi_*` argument can also be set with the matching `KAFKA_SASL_GSSAPI_*` environment variable (for example `KAFKA_SASL_GSSAPI_KEYTAB_PATH`).
+
+### Kerberos troubleshooting
+
+- `KDC_ERR_S_PRINCIPAL_UNKNOWN` — `sasl_gssapi_service_name` does not match the broker principal; the broker host name used in `bootstrap_servers` must match the `<host>` part of `kafka/<host>@REALM` (no IP addresses).
+- `KDC_ERR_PREAUTH_FAILED` — wrong password or a keytab with a stale kvno; re-export the keytab.
+- Active Directory — keep `sasl_gssapi_disable_pafxfast = true` (default).
+- `realm unknown` — set `sasl_gssapi_realm`, use a principal with `@REALM`, or configure `default_realm` in krb5.conf.
 
 ## Security Best Practices
 
