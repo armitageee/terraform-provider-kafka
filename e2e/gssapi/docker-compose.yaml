@@ -50,7 +50,7 @@ services:
       retries: 60
 
   client:
-    image: golang:1.25
+    image: golang:1.27
     networks: [e2e]
     depends_on:
       kafka: { condition: service_healthy }

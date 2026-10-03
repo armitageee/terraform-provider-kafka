@@ -166,12 +166,12 @@ func apiVersionsFromBroker(broker *sarama.Broker, config *sarama.Config, ch chan
 }
 
 func rawApiVersionsRequest(broker *sarama.Broker, config *sarama.Config) (*sarama.ApiVersionsResponse, error) {
-	if err := broker.Open(config); err != nil && err != sarama.ErrAlreadyConnected {
+	if err := broker.Open(config); err != nil && !errors.Is(err, sarama.ErrAlreadyConnected) {
 		return nil, err
 	}
 
 	defer func() {
-		if err := broker.Close(); err != nil && err != sarama.ErrNotConnected {
+		if err := broker.Close(); err != nil && !errors.Is(err, sarama.ErrNotConnected) {
 			log.Printf("[ERROR] failed to close broker: %v", err)
 		}
 	}()
@@ -531,7 +531,8 @@ func (client *Client) ReadTopic(name string, refreshMetadata bool) (Topic, error
 		log.Printf("[DEBUG] Refreshing metadata for topic '%s'", name)
 		err := c.RefreshMetadata(name)
 
-		if err == sarama.ErrUnknownTopicOrPartition {
+		// sarama ≥ 1.47 wraps it with the topic name ("<topic>: kafka server: ...").
+		if errors.Is(err, sarama.ErrUnknownTopicOrPartition) {
 			err := TopicMissingError{msg: fmt.Sprintf("%s could not be found", name)}
 			return topic, err
 		}
