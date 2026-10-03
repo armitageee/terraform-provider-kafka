@@ -65,6 +65,7 @@ func (p *FrameworkProvider) DataSources(context.Context) []func() datasource.Dat
 func (p *FrameworkProvider) ListResources(context.Context) []func() list.ListResource {
 	return []func() list.ListResource{
 		func() list.ListResource { return &topicListResource{sdk: p.sdk} },
+		func() list.ListResource { return &aclListResource{sdk: p.sdk} },
 	}
 }
 

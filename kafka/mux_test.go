@@ -2,6 +2,7 @@ package kafka
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-go/tfprotov5"
@@ -42,6 +43,14 @@ func TestMuxServerSchemas(t *testing.T) {
 		}
 	}
 
+	al, ok := schemas.ListResourceSchemas["kafka_acl"]
+	if !ok {
+		t.Fatal("kafka_acl list resource schema missing (framework side)")
+	}
+	if len(al.Block.Attributes) != 3 {
+		t.Errorf("kafka_acl list schema has %d attributes, want 3", len(al.Block.Attributes))
+	}
+
 	ids, err := srv.GetResourceIdentitySchemas(ctx, &tfprotov5.GetResourceIdentitySchemasRequest{})
 	if err != nil {
 		t.Fatal(err)
@@ -51,16 +60,28 @@ func TestMuxServerSchemas(t *testing.T) {
 		t.Fatalf("kafka_topic identity schema = %+v", id)
 	}
 
+	aid, ok := ids.IdentitySchemas["kafka_acl"]
+	if !ok || len(aid.IdentityAttributes) != len(aclIdentityAttributes) {
+		t.Fatalf("kafka_acl identity schema = %+v", aid)
+	}
+	for _, a := range aid.IdentityAttributes {
+		if !a.RequiredForImport {
+			t.Errorf("kafka_acl identity %q is not RequiredForImport", a.Name)
+		}
+	}
+
 	meta, err := srv.GetMetadata(ctx, &tfprotov5.GetMetadataRequest{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	found := false
+	advertised := map[string]bool{}
 	for _, l := range meta.ListResources {
-		found = found || l.TypeName == "kafka_topic"
+		advertised[l.TypeName] = true
 	}
-	if !found {
-		t.Error("GetMetadata does not advertise the kafka_topic list resource")
+	for _, want := range []string{"kafka_topic", "kafka_acl"} {
+		if !advertised[want] {
+			t.Errorf("GetMetadata does not advertise the %s list resource", want)
+		}
 	}
 }
 
@@ -94,5 +115,45 @@ func TestFilterTopicNames(t *testing.T) {
 	}
 	if _, err := filterTopicNames(names, "", "(", false); err == nil {
 		t.Error("invalid regex must be an error")
+	}
+}
+
+func TestFilterACLs(t *testing.T) {
+	mk := func(principal, typ, name string) StringlyTypedACL {
+		return StringlyTypedACL{
+			ACL:      ACL{Principal: principal, Host: "*", Operation: "Read", PermissionType: "Allow"},
+			Resource: Resource{Type: typ, Name: name, PatternTypeFilter: "Literal"},
+		}
+	}
+	in := []StringlyTypedACL{
+		mk("User:bob", "Topic", "orders.v1"),
+		mk("User:alice", "Group", "orders-consumers"),
+		mk("User:alice", "Topic", "payments"),
+		mk("User:alice", "Topic", "orders.v1"),
+	}
+	cases := []struct {
+		f    aclFilter
+		want []string
+	}{
+		{aclFilter{}, []string{
+			"User:alice|*|Read|Allow|Group|orders-consumers|Literal",
+			"User:alice|*|Read|Allow|Topic|orders.v1|Literal",
+			"User:alice|*|Read|Allow|Topic|payments|Literal",
+			"User:bob|*|Read|Allow|Topic|orders.v1|Literal",
+		}},
+		{aclFilter{principal: "User:bob"}, []string{"User:bob|*|Read|Allow|Topic|orders.v1|Literal"}},
+		{aclFilter{resourceType: "topic", namePrefix: "orders"}, []string{
+			"User:alice|*|Read|Allow|Topic|orders.v1|Literal",
+			"User:bob|*|Read|Allow|Topic|orders.v1|Literal",
+		}},
+	}
+	for _, c := range cases {
+		var got []string
+		for _, a := range filterACLs(in, c.f) {
+			got = append(got, a.String())
+		}
+		if strings.Join(got, ",") != strings.Join(c.want, ",") {
+			t.Errorf("filterACLs(%+v) = %v, want %v", c.f, got, c.want)
+		}
 	}
 }
