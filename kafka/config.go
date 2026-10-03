@@ -48,6 +48,7 @@ type Config struct {
 	SASLTokenUrl                           string
 	SASLAWSSharedConfigFiles               *[]string
 	SASLOAuthScopes                        []string
+	SASLGSSAPI                             GSSAPIConfig
 }
 
 type OAuth2Config interface {
@@ -187,9 +188,16 @@ func (c *Config) newKafkaConfig() (*sarama.Config, error) {
 				Scopes:       c.SASLOAuthScopes,
 			}
 			kafkaConfig.Net.SASL.TokenProvider = newOauthbearerTokenProvider(&oauth2Config)
+		case "gssapi":
+			gssapi, err := c.SASLGSSAPI.saramaConfig()
+			if err != nil {
+				return kafkaConfig, err
+			}
+			kafkaConfig.Net.SASL.Mechanism = sarama.SASLMechanism(sarama.SASLTypeGSSAPI)
+			kafkaConfig.Net.SASL.GSSAPI = gssapi
 		case "plain":
 		default:
-			return kafkaConfig, fmt.Errorf("invalid sasl mechanism \"%s\": can only be \"scram-sha256\", \"scram-sha512\", \"aws-iam\", \"oauthbearer\" or \"plain\"", c.SASLMechanism)
+			return kafkaConfig, fmt.Errorf("invalid sasl mechanism \"%s\": can only be \"scram-sha256\", \"scram-sha512\", \"aws-iam\", \"oauthbearer\", \"gssapi\" or \"plain\"", c.SASLMechanism)
 		}
 
 		kafkaConfig.Net.SASL.Enable = true
@@ -225,7 +233,7 @@ func (c *Config) newKafkaConfig() (*sarama.Config, error) {
 }
 
 func (c *Config) saslEnabled() bool {
-	return c.SASLUsername != "" || c.SASLPassword != "" || c.SASLMechanism == "aws-iam"
+	return c.SASLUsername != "" || c.SASLPassword != "" || c.SASLMechanism == "aws-iam" || c.SASLMechanism == "gssapi"
 }
 
 func NewTLSConfig(clientCert, clientKey, caCert, clientKeyPassphrase string) (*tls.Config, error) {
@@ -356,6 +364,7 @@ func (config *Config) copyWithMaskedSensitiveValues() Config {
 		config.SASLTokenUrl,
 		config.SASLAWSSharedConfigFiles,
 		config.SASLOAuthScopes,
+		config.SASLGSSAPI.masked(),
 	}
 	return copy
 }

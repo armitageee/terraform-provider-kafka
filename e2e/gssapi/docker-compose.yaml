@@ -1,0 +1,76 @@
+# SASL/GSSAPI end-to-end: MIT KDC + single-node Kafka (KRaft) + Go test client.
+#   docker compose -f e2e/gssapi/docker-compose.yaml run --rm client
+# Everything lives on one network with DNS names matching the Kerberos principals.
+name: tpk-gssapi-e2e
+
+services:
+  kdc:
+    image: alpine:3.22
+    hostname: kdc.example.test
+    networks: { e2e: { aliases: [kdc.example.test] } }
+    entrypoint: ["/e2e/kdc-entrypoint.sh"]
+    volumes:
+      - ./:/e2e:ro
+      - keytabs:/keytabs
+    healthcheck:
+      test: ["CMD", "test", "-f", "/keytabs/ready"]
+      interval: 2s
+      retries: 60
+
+  kafka:
+    image: apache/kafka:4.1.0
+    hostname: kafka.example.test
+    networks: { e2e: { aliases: [kafka.example.test] } }
+    depends_on:
+      kdc: { condition: service_healthy }
+    volumes:
+      - ./:/e2e:ro
+      - keytabs:/keytabs:ro
+    environment:
+      KAFKA_NODE_ID: "1"
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka.example.test:9093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENERS: SASL_PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: SASL_PLAINTEXT://kafka.example.test:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: SASL_PLAINTEXT:SASL_PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: SASL_PLAINTEXT
+      KAFKA_SASL_ENABLED_MECHANISMS: GSSAPI
+      KAFKA_SASL_MECHANISM_INTER_BROKER_PROTOCOL: GSSAPI
+      KAFKA_SASL_KERBEROS_SERVICE_NAME: kafka
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "1"
+      KAFKA_OPTS: >-
+        -Djava.security.auth.login.config=/e2e/kafka_jaas.conf
+        -Djava.security.krb5.conf=/e2e/krb5.conf
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 9092"]
+      interval: 3s
+      retries: 60
+
+  client:
+    image: golang:1.25
+    networks: [e2e]
+    depends_on:
+      kafka: { condition: service_healthy }
+    working_dir: /src
+    volumes:
+      - ../..:/src
+      - keytabs:/keytabs:ro
+      - gomod:/go/pkg/mod
+    environment:
+      GOFLAGS: -buildvcs=false
+      GOTOOLCHAIN: auto
+      GSSAPI_E2E: "1"
+      KAFKA_BOOTSTRAP: kafka.example.test:9092
+      KRB5_CONFIG: /src/e2e/gssapi/krb5.conf
+      GSSAPI_E2E_KEYTAB: /keytabs/terraform.keytab
+    command: ["go", "test", "./kafka", "-run", "TestGSSAPIE2E", "-count=1", "-v"]
+
+networks:
+  e2e: {}
+
+volumes:
+  keytabs: {}
+  gomod: {}
