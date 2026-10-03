@@ -227,3 +227,10 @@ func (c *LazyClient) ListUserScramCredentials() ([]UserScramCredential, error) {
 	}
 	return c.inner.ListUserScramCredentials()
 }
+
+func (c *LazyClient) DescribeCluster() (*ClusterInfo, error) {
+	if err := c.init(); err != nil {
+		return nil, err
+	}
+	return c.inner.DescribeCluster()
+}

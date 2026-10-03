@@ -20,7 +20,7 @@ and resource configuration for you.
 | `kafka_user_scram_credential` | 0.17.0 | `scram_mechanism`, `username_prefix` |
 
 Requires **Terraform 1.14 or later** (`terraform query`).
-OpenTofu does not implement `query` yet.
+OpenTofu does not implement `query` yet; see [Auditing with OpenTofu](#auditing-with-opentofu).
 
 ## 1. Describe what to find
 
@@ -202,6 +202,37 @@ resource "kafka_user_scram_credential" "services_0" {
   scram_iterations = 4096
   password_wo      = var.svc_orders_password # add by hand
 }
+```
+
+## Auditing with OpenTofu
+
+OpenTofu (and Terraform before 1.14) cannot run `terraform query`, but the
+same information is available through data sources with the same filters:
+
+| Data source | Returns |
+|---|---|
+| `kafka_cluster` | cluster ID, active controller, brokers |
+| `kafka_topics` | all topics with partitions, replication factor, config |
+| `kafka_acls` | ACLs (`acl_principal`, `resource_type`, `resource_name_prefix` filters) |
+| `kafka_quotas` | single-entity quotas, including defaults (`entity_type`, `entity_name_prefix`) |
+| `kafka_user_scram_credentials` | users and mechanisms, never passwords (`scram_mechanism`, `username_prefix`) |
+
+Every entry has an `id` that is the resource ID, so the data sources also give
+you what you need for `import` blocks:
+
+```terraform
+data "kafka_acls" "orders_service" {
+  acl_principal = "User:orders-service"
+}
+
+output "acl_import_ids" {
+  value = [for a in data.kafka_acls.orders_service.acls : a.id]
+}
+```
+
+```shell
+tofu apply -refresh-only   # or: tofu plan, then read the output
+tofu output acl_import_ids
 ```
 
 ## Resource identity
