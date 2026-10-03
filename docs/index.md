@@ -7,6 +7,10 @@ description: |-
 
 # kafka Provider
 
+> This is [`armitageee/kafka`](https://github.com/armitageee/terraform-provider-kafka), a fork of [`Mongey/kafka`](https://registry.terraform.io/providers/Mongey/kafka) that adds [Kerberos (SASL/GSSAPI) authentication](guides/authentication#kerberos-saslgssapi-authentication). Configuration is otherwise compatible: change `source` to `armitageee/kafka` to switch.
+
+OpenTofu: use the full address `registry.terraform.io/armitageee/kafka`.
+
 The Kafka provider is used to interact with [Apache Kafka](https://kafka.apache.org/) clusters. The provider allows you to manage Kafka topics, ACLs, quotas, and SCRAM credentials. It supports various authentication methods including TLS, SASL/PLAIN, SASL/SCRAM, AWS IAM, and OAuth.
 
 ## Documentation
@@ -25,8 +29,8 @@ The Kafka provider is used to interact with [Apache Kafka](https://kafka.apache.
 terraform {
   required_providers {
     kafka = {
-      source  = "Mongey/kafka"
-      version = "~> 0.7"
+      source  = "armitageee/kafka"
+      version = "~> 0.14"
     }
   }
 }

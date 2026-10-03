@@ -331,7 +331,7 @@ provider "kafka" {
 
 If you continue to experience issues:
 
-1. Check the [GitHub Issues](https://github.com/Mongey/terraform-provider-kafka/issues) for similar problems
+1. Check the [GitHub Issues](https://github.com/armitageee/terraform-provider-kafka/issues) for similar problems
 2. Enable debug logging and collect logs
 3. Open a new issue with:
    - Terraform version
