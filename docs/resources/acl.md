@@ -112,7 +112,7 @@ terraform import kafka_acl.example 'User:producer|*|Write|Allow|Topic|orders|Lit
 
 ### Optional
 
-- `resource_pattern_type_filter` (String)
+- `resource_pattern_type_filter` (String) How to match the resource name. Valid values: Literal (exact match) or Prefixed (match resources with the given prefix).
 
 ### Read-Only
 

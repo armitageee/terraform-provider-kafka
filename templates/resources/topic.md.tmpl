@@ -1,5 +1,5 @@
 ---
-page_title: "{{.Name}} {{.Type}} - {{.ProviderName}}"
+page_title: "{{.Name}} {{.Type}} - {{.RenderedProviderName}}"
 subcategory: ""
 description: |-
   A resource for managing Kafka topics. Supports creating topics with custom configurations and increasing partition counts without recreation.
@@ -26,6 +26,10 @@ The `kafka_topic` resource manages Apache Kafka topics, including their partitio
 ### High-Throughput Topic
 
 {{tffile "examples/resources/kafka_topic/high-throughput.tf"}}
+
+### Topic with Confluent placement constraints
+
+{{tffile "examples/resources/kafka_topic/confluent.tf"}}
 
 ## Import
 

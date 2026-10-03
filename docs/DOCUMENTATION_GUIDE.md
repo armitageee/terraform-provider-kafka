@@ -59,24 +59,25 @@ Available in templates:
 
 ## Regenerating Documentation
 
-To regenerate while preserving customizations:
-
 ```bash
-# Install terraform-plugin-docs if needed
-go install github.com/hashicorp/terraform-plugin-docs/cmd/tfplugindocs@latest
-
-# Generate documentation
-tfplugindocs generate
-
-# Or use go generate
 go generate ./...
 ```
+
+This formats `examples/` and runs `tfplugindocs` with the flags pinned in `main.go`
+(including the Terraform version: list resources need Terraform >= 1.14). Commit
+`docs/` together with the change; the `docs` CI job fails when the generated
+output differs from what is committed.
+
+Never edit files in `docs/` by hand (except this guide): the next generation
+overwrites them. Change `templates/`, `examples/` or the schema descriptions.
 
 ## Adding New Documentation
 
 1. Create template: `templates/resources/new_resource.md.tmpl`
 2. Create examples: `examples/resources/new_resource/*.tf`
-3. Run generation: `tfplugindocs generate`
+3. Run generation: `go generate ./...`
+
+List resources (`terraform query`): example in `examples/list-resources/<name>/list-resource.tfquery.hcl`, optional template `templates/list-resources/<short_name>.md.tmpl`.
 
 ## Migrating Current Enhanced Docs
 
