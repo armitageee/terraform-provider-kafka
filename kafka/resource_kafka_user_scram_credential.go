@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"time"
 
 	"github.com/IBM/sarama"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/retry"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/validation"
 )
@@ -194,8 +196,38 @@ func userScramCredentialCreate(ctx context.Context, d *schema.ResourceData, meta
 		return diag.FromErr(err)
 	}
 
+	// AlterUserScramCredentials returns before every broker has applied the
+	// metadata change; a Describe routed to a lagging broker answers
+	// RESOURCE_NOT_FOUND and Read would then drop the resource from state.
+	// Same wait as kafka_quota / kafka_topic.
+	stateConf := &retry.StateChangeConf{
+		Pending:      []string{"Pending"},
+		Target:       []string{"Created"},
+		Refresh:      userScramCredentialCreatedFunc(c, userScramCredential),
+		Timeout:      time.Duration(c.Config.Timeout) * time.Second,
+		Delay:        1 * time.Second,
+		PollInterval: 2 * time.Second,
+	}
+	if _, err := stateConf.WaitForStateContext(ctx); err != nil {
+		return diag.FromErr(fmt.Errorf("error waiting for user scram credential (%s) to be created: %w", userScramCredential.ID(), err))
+	}
+
 	d.SetId(userScramCredential.ID())
 	return nil
+}
+
+func userScramCredentialCreatedFunc(client *LazyClient, usc UserScramCredential) retry.StateRefreshFunc {
+	return func() (interface{}, string, error) {
+		found, err := client.DescribeUserScramCredential(usc.Name, usc.Mechanism.String())
+		switch err.(type) {
+		case nil:
+			return found, "Created", nil
+		case UserScramCredentialMissingError:
+			return nil, "Pending", nil
+		default:
+			return nil, "Error", err
+		}
+	}
 }
 
 func userScramCredentialRead(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
