@@ -54,8 +54,11 @@ your [terraform plugin directory][third-party-plugins] (typically `~/.terraform.
     ```
 0. Build the provider `make build`
 0. Run the tests `make test`
-0. Start a TLS enabled kafka-cluster `docker-compose up`
-0. Run the acceptance tests `make testacc`
+0. Start a TLS enabled kafka-cluster `docker compose up -d --wait`
+   (Kafka 4.3.1 by default; another version: `KAFKA_IMAGE=apache/kafka-native:3.9.1 docker compose up -d --wait`)
+0. Run the acceptance tests `make testacc`. They use `terraform-plugin-testing` and the real
+   Terraform CLI from `PATH` (or `TF_ACC_TERRAFORM_PATH`); identity and `terraform query`
+   tests need Terraform 1.14+ and are skipped on older versions
 
 ## Provider Configuration
 

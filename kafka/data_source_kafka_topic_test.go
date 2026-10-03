@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	uuid "github.com/hashicorp/go-uuid"
-	r "github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
+	r "github.com/hashicorp/terraform-plugin-testing/helper/resource"
 )
 
 func TestAcc_TopicData(t *testing.T) {
@@ -19,7 +19,7 @@ func TestAcc_TopicData(t *testing.T) {
 	bs := testBootstrapServers[0]
 
 	r.Test(t, r.TestCase{
-		ProviderFactories: overrideProviderFactory(),
+		ProtoV5ProviderFactories: protoV5ProviderFactories(),
 		//PreCheck: func() { testAccPreCheck(t) },
 		Steps: []r.TestStep{
 			{

@@ -72,7 +72,7 @@ func (r *topicListResource) List(ctx context.Context, req list.ListRequest, stre
 		return
 	}
 
-	client := getSharedClient()
+	client := r.sdk.client()
 	if client == nil {
 		diags := listError("Provider not configured", "The kafka provider block was not configured before listing.")
 		stream.Results = list.ListResultsStreamDiagnostics(diags)

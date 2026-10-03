@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	uuid "github.com/hashicorp/go-uuid"
-	r "github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
+	r "github.com/hashicorp/terraform-plugin-testing/helper/resource"
 )
 
 // lintignore:AT001
@@ -24,7 +24,7 @@ func TestAcc_LazyInit(t *testing.T) {
 	}
 
 	r.Test(t, r.TestCase{
-		ProviderFactories: overrideProviderFactory(),
+		ProtoV5ProviderFactories: protoV5ProviderFactories(),
 		Steps: []r.TestStep{
 			{
 				Config:             cfg(t, bs, fmt.Sprintf(test_allResources_config, topicName, topicName)),

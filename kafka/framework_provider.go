@@ -53,7 +53,7 @@ func (p *FrameworkProvider) Schema(ctx context.Context, _ provider.SchemaRequest
 }
 
 // Configure does not parse the config: the SDKv2 server (configured first by
-// the mux) already built the client and shared it.
+// the mux) already built the client; list resources read it via sdkSchemas.client.
 func (p *FrameworkProvider) Configure(_ context.Context, _ provider.ConfigureRequest, resp *provider.ConfigureResponse) {
 	resp.ListResourceData = p
 }
@@ -87,6 +87,15 @@ func (s *sdkSchemas) load(ctx context.Context) {
 		}
 		s.identity, s.err = srv.GetResourceIdentitySchemas(ctx, &tfprotov5.GetResourceIdentitySchemasRequest{})
 	})
+}
+
+// client returns the Kafka client of the SDKv2 provider instance this
+// framework provider is muxed with, or nil before it is configured. Reading it
+// from the instance (not a package variable) keeps several providers in one
+// process apart, e.g. in parallel acceptance tests.
+func (s *sdkSchemas) client() *LazyClient {
+	c, _ := s.provider.Meta().(*LazyClient)
+	return c
 }
 
 func (s *sdkSchemas) get(ctx context.Context) (*tfprotov5.GetProviderSchemaResponse, error) {

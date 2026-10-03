@@ -9,8 +9,8 @@ import (
 
 	"github.com/IBM/sarama"
 	uuid "github.com/hashicorp/go-uuid"
-	r "github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
+	r "github.com/hashicorp/terraform-plugin-testing/helper/resource"
+	"github.com/hashicorp/terraform-plugin-testing/terraform"
 )
 
 func TestAcc_ACLCreateAndUpdate(t *testing.T) {
@@ -23,7 +23,7 @@ func TestAcc_ACLCreateAndUpdate(t *testing.T) {
 	bs := testBootstrapServers[0]
 
 	r.Test(t, r.TestCase{
-		ProviderFactories: overrideProviderFactory(),
+		ProtoV5ProviderFactories: protoV5ProviderFactories(),
 		PreCheck:          func() { testAccPreCheck(t) },
 		CheckDestroy:      func(s *terraform.State) error { return testAccCheckAclDestroy(aclResourceName) },
 		Steps: []r.TestStep{
@@ -78,7 +78,7 @@ func TestAcc_ACLDeletedOutsideOfTerraform(t *testing.T) {
 	bs := testBootstrapServers[0]
 
 	r.Test(t, r.TestCase{
-		ProviderFactories: overrideProviderFactory(),
+		ProtoV5ProviderFactories: protoV5ProviderFactories(),
 		PreCheck:          func() { testAccPreCheck(t) },
 		CheckDestroy:      func(s *terraform.State) error { return testAccCheckAclDestroy(aclResourceName) },
 		Steps: []r.TestStep{

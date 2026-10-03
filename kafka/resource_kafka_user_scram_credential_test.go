@@ -7,8 +7,8 @@ import (
 	"testing"
 
 	uuid "github.com/hashicorp/go-uuid"
-	r "github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
+	r "github.com/hashicorp/terraform-plugin-testing/helper/resource"
+	"github.com/hashicorp/terraform-plugin-testing/terraform"
 )
 
 func TestAcc_UserScramCredentialBasic(t *testing.T) {
@@ -22,7 +22,7 @@ func TestAcc_UserScramCredentialBasic(t *testing.T) {
 	bs := testBootstrapServers[0]
 
 	r.Test(t, r.TestCase{
-		ProviderFactories: overrideProviderFactory(),
+		ProtoV5ProviderFactories: protoV5ProviderFactories(),
 		PreCheck:          func() { testAccPreCheck(t) },
 		CheckDestroy:      testAccCheckUserScramCredentialDestroy,
 		Steps: []r.TestStep{
@@ -45,7 +45,7 @@ func TestAcc_UserScramCredentialWithIterations(t *testing.T) {
 	bs := testBootstrapServers[0]
 
 	r.Test(t, r.TestCase{
-		ProviderFactories: overrideProviderFactory(),
+		ProtoV5ProviderFactories: protoV5ProviderFactories(),
 		PreCheck:          func() { testAccPreCheck(t) },
 		CheckDestroy:      testAccCheckUserScramCredentialDestroy,
 		Steps: []r.TestStep{
@@ -68,7 +68,7 @@ func TestAcc_UserScramCredentialSHA512(t *testing.T) {
 	bs := testBootstrapServers[0]
 
 	r.Test(t, r.TestCase{
-		ProviderFactories: overrideProviderFactory(),
+		ProtoV5ProviderFactories: protoV5ProviderFactories(),
 		PreCheck:          func() { testAccPreCheck(t) },
 		CheckDestroy:      testAccCheckUserScramCredentialDestroy,
 		Steps: []r.TestStep{
@@ -91,7 +91,7 @@ func TestAcc_UserScramCredentialConfigUpdate(t *testing.T) {
 	bs := testBootstrapServers[0]
 
 	r.Test(t, r.TestCase{
-		ProviderFactories: overrideProviderFactory(),
+		ProtoV5ProviderFactories: protoV5ProviderFactories(),
 		PreCheck:          func() { testAccPreCheck(t) },
 		CheckDestroy:      testAccCheckUserScramCredentialDestroy,
 		Steps: []r.TestStep{
@@ -118,7 +118,7 @@ func TestAcc_UserScramCredentialWriteOnly(t *testing.T) {
 	bs := testBootstrapServers[0]
 
 	r.Test(t, r.TestCase{
-		ProviderFactories: overrideProviderFactory(),
+		ProtoV5ProviderFactories: protoV5ProviderFactories(),
 		PreCheck:          func() { testAccPreCheck(t) },
 		CheckDestroy:      testAccCheckUserScramCredentialDestroy,
 		Steps: []r.TestStep{
@@ -141,7 +141,7 @@ func TestAcc_UserScramCredentialWriteOnlyUpdate(t *testing.T) {
 	bs := testBootstrapServers[0]
 
 	r.Test(t, r.TestCase{
-		ProviderFactories: overrideProviderFactory(),
+		ProtoV5ProviderFactories: protoV5ProviderFactories(),
 		PreCheck:          func() { testAccPreCheck(t) },
 		CheckDestroy:      testAccCheckUserScramCredentialDestroy,
 		Steps: []r.TestStep{
@@ -168,7 +168,7 @@ func TestAcc_UserScramCredentialWriteOnlyWithIterations(t *testing.T) {
 	bs := testBootstrapServers[0]
 
 	r.Test(t, r.TestCase{
-		ProviderFactories: overrideProviderFactory(),
+		ProtoV5ProviderFactories: protoV5ProviderFactories(),
 		PreCheck:          func() { testAccPreCheck(t) },
 		CheckDestroy:      testAccCheckUserScramCredentialDestroy,
 		Steps: []r.TestStep{
