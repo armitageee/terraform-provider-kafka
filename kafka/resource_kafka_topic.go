@@ -20,7 +20,21 @@ func kafkaTopicResource() *schema.Resource {
 		UpdateContext: topicUpdate,
 		DeleteContext: topicDelete,
 		Importer: &schema.ResourceImporter{
-			StateContext: schema.ImportStatePassthroughContext,
+			// ID == topic name, so import by ID and import by identity are the same.
+			StateContext: schema.ImportStatePassthroughWithIdentity("name"),
+		},
+		// Identity lets `terraform query` (list resource) and import blocks
+		// address a topic without guessing the ID format.
+		Identity: &schema.ResourceIdentity{
+			SchemaFunc: func() map[string]*schema.Schema {
+				return map[string]*schema.Schema{
+					"name": {
+						Type:              schema.TypeString,
+						RequiredForImport: true,
+						Description:       "The name of the topic.",
+					},
+				}
+			},
 		},
 		CustomizeDiff: customDiff,
 		Schema: map[string]*schema.Schema{
@@ -78,6 +92,9 @@ func topicCreate(ctx context.Context, d *schema.ResourceData, meta interface{}) 
 	}
 
 	d.SetId(t.Name)
+	if err := setTopicIdentity(d, t.Name); err != nil {
+		return diag.FromErr(err)
+	}
 	return nil
 }
 
@@ -282,8 +299,19 @@ func topicRead(ctx context.Context, d *schema.ResourceData, meta interface{}) di
 	if errSet.err != nil {
 		return diag.FromErr(errSet.err)
 	}
+	if err := setTopicIdentity(d, topic.Name); err != nil {
+		return diag.FromErr(err)
+	}
 
 	return nil
+}
+
+func setTopicIdentity(d *schema.ResourceData, name string) error {
+	identity, err := d.Identity()
+	if err != nil {
+		return err
+	}
+	return identity.Set("name", name)
 }
 
 func customDiff(ctx context.Context, diff *schema.ResourceDiff, v interface{}) error {
