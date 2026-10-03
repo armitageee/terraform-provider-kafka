@@ -201,3 +201,15 @@ func (c *LazyClient) GetKafkaTopics() ([]Topic, error) {
 	}
 	return c.inner.getKafkaTopics()
 }
+
+// TopicNames lists topic names from fresh cluster metadata without
+// describing each topic's config (cheap, for list resources).
+func (c *LazyClient) TopicNames() ([]string, error) {
+	if err := c.init(); err != nil {
+		return nil, err
+	}
+	if err := c.inner.client.RefreshMetadata(); err != nil {
+		return nil, err
+	}
+	return c.inner.client.Topics()
+}

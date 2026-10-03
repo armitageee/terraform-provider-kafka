@@ -247,6 +247,9 @@ func Provider() *schema.Provider {
 			if err != nil {
 				return nil, diag.FromErr(err)
 			}
+			if lc, ok := c.(*LazyClient); ok {
+				setSharedClient(lc)
+			}
 			return c, nil
 		},
 		ResourcesMap: map[string]*schema.Resource{

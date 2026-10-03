@@ -1,10 +1,12 @@
 package main
 
 import (
+	"context"
 	"flag"
+	"log"
 
 	"github.com/Mongey/terraform-provider-kafka/kafka"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/plugin"
+	"github.com/hashicorp/terraform-plugin-go/tfprotov5/tf5server"
 )
 
 // Run "go generate" to format example terraform files and generate the docs for the registry/website
@@ -23,7 +25,17 @@ func main() {
 	flag.BoolVar(&debugMode, "debug", false, "set to true to run the provider with support for debuggers like delve")
 	flag.Parse()
 
-	opts := &plugin.ServeOpts{ProviderFunc: kafka.Provider, Debug: debugMode}
+	ctx := context.Background()
+	server, err := kafka.MuxServer(ctx)
+	if err != nil {
+		log.Fatal(err)
+	}
 
-	plugin.Serve(opts)
+	var serveOpts []tf5server.ServeOpt
+	if debugMode {
+		serveOpts = append(serveOpts, tf5server.WithManagedDebug())
+	}
+	if err := tf5server.Serve("registry.terraform.io/armitageee/kafka", server, serveOpts...); err != nil {
+		log.Fatal(err)
+	}
 }
