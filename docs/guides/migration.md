@@ -235,8 +235,8 @@ resource "kafka_topic" "example" {
 terraform {
   required_providers {
     kafka = {
-      source  = "Mongey/kafka"
-      version = "~> 0.8"  # Supports Kafka 4.0.0
+      source  = "armitageee/kafka"
+      version = "~> 0.14" # Supports Kafka 4.0.0
     }
   }
 }
@@ -374,6 +374,6 @@ provider "kafka" {
 If you encounter issues during migration:
 
 1. Check the [Troubleshooting Guide](./troubleshooting.md)
-2. Review [GitHub Issues](https://github.com/Mongey/terraform-provider-kafka/issues) for similar migrations
+2. Review [GitHub Issues](https://github.com/armitageee/terraform-provider-kafka/issues) for similar migrations
 3. Test with minimal configuration first
 4. Enable debug logging during migration

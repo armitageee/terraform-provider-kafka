@@ -223,8 +223,8 @@ provider "kafka" {
 terraform {
   required_providers {
     kafka = {
-      source  = "Mongey/kafka"
-      version = "~> 0.7"
+      source  = "armitageee/kafka"
+      version = "~> 0.14"
     }
     aws = {
       source  = "hashicorp/aws"
