@@ -111,7 +111,35 @@ func quotaDelete(ctx context.Context, d *schema.ResourceData, meta interface{}) 
 		return diag.FromErr(err)
 	}
 
+	// Like create: AlterClientQuotas returns before every broker has applied
+	// the change, and a Describe on a lagging broker still sees the quota.
+	stateConf := &retry.StateChangeConf{
+		Pending:      []string{"Present"},
+		Target:       []string{"Deleted"},
+		Refresh:      quotaDeletedFunc(c, quota),
+		Timeout:      time.Duration(c.Config.Timeout) * time.Second,
+		Delay:        1 * time.Second,
+		PollInterval: 2 * time.Second,
+	}
+	if _, err := stateConf.WaitForStateContext(ctx); err != nil {
+		return diag.FromErr(fmt.Errorf("error waiting for quota (%s) to be deleted: %w", quota.ID(), err))
+	}
+
 	return nil
+}
+
+func quotaDeletedFunc(client *LazyClient, q Quota) retry.StateRefreshFunc {
+	return func() (interface{}, string, error) {
+		_, err := client.DescribeQuota(q.EntityType, q.EntityName)
+		switch err.(type) {
+		case QuotaMissingError:
+			return q, "Deleted", nil
+		case nil:
+			return q, "Present", nil
+		default:
+			return nil, "Error", err
+		}
+	}
 }
 
 func quotaRead(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
