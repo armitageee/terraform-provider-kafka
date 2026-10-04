@@ -14,6 +14,10 @@ import (
 // terraform-plugin-framework provider: step 1 applies with armitageee/kafka
 // 0.17.0 from the Registry, step 2 plans the same config with this code.
 // Needs network access to registry.terraform.io (and no network_mirror).
+//
+// One resource per config: releases up to 0.18.0 race when one provider
+// process reads several resources at once ("kafka: broker not connected",
+// fixed in 0.18.1), and step 1 runs such a release.
 const lastSDKv2Release = "0.17.0"
 
 func compatSteps(t *testing.T, config string) []r.TestStep {
@@ -45,17 +49,26 @@ func compatName(t *testing.T) string {
 func TestAcc_CompatTopic(t *testing.T) {
 	t.Parallel()
 	name := compatName(t)
-	config := providerOnlyCfg(t, testBootstrapServers[0], fmt.Sprintf(testResourceTopic_initialConfig, name)+fmt.Sprintf(`
+	r.Test(t, r.TestCase{
+		PreCheck:     func() { testAccPreCheck(t) },
+		CheckDestroy: testAccCheckTopicDestroy,
+		Steps:        compatSteps(t, providerOnlyCfg(t, testBootstrapServers[0], fmt.Sprintf(testResourceTopic_initialConfig, name))),
+	})
+}
+
+// A topic without config: SDKv2 stored config = null, the framework must too.
+func TestAcc_CompatTopicWithoutConfig(t *testing.T) {
+	t.Parallel()
+	name := compatName(t)
+	r.Test(t, r.TestCase{
+		PreCheck: func() { testAccPreCheck(t) },
+		Steps: compatSteps(t, providerOnlyCfg(t, testBootstrapServers[0], fmt.Sprintf(`
 resource "kafka_topic" "noconfig" {
   name               = "%s-noconfig"
   replication_factor = 1
   partitions         = 2
 }
-`, name))
-	r.Test(t, r.TestCase{
-		PreCheck:     func() { testAccPreCheck(t) },
-		CheckDestroy: testAccCheckTopicDestroy,
-		Steps:        compatSteps(t, config),
+`, name))),
 	})
 }
 
@@ -88,11 +101,24 @@ func TestAcc_CompatDefaultQuota(t *testing.T) {
 	})
 }
 
+// Legacy password: stored in state by SDKv2.
 func TestAcc_CompatUserScramCredential(t *testing.T) {
 	t.Parallel()
 	name := compatName(t)
-	// Legacy password (in state) and write-only password_wo with a version.
-	config := providerOnlyCfg(t, testBootstrapServers[0], fmt.Sprintf(testResourceUserScramCredential_SHA256, name)+fmt.Sprintf(`
+	r.Test(t, r.TestCase{
+		PreCheck:     func() { testAccPreCheck(t) },
+		CheckDestroy: testAccCheckUserScramCredentialDestroy,
+		Steps:        compatSteps(t, providerOnlyCfg(t, testBootstrapServers[0], fmt.Sprintf(testResourceUserScramCredential_SHA256, name))),
+	})
+}
+
+// Write-only password with a version and non-default iterations.
+func TestAcc_CompatUserScramCredentialWriteOnly(t *testing.T) {
+	t.Parallel()
+	name := compatName(t)
+	r.Test(t, r.TestCase{
+		PreCheck: func() { testAccPreCheck(t) },
+		Steps: compatSteps(t, providerOnlyCfg(t, testBootstrapServers[0], fmt.Sprintf(`
 resource "kafka_user_scram_credential" "wo" {
   username            = "%s-wo"
   scram_mechanism     = "SCRAM-SHA-512"
@@ -100,10 +126,6 @@ resource "kafka_user_scram_credential" "wo" {
   password_wo         = "write-only-test"
   password_wo_version = "1"
 }
-`, name))
-	r.Test(t, r.TestCase{
-		PreCheck:     func() { testAccPreCheck(t) },
-		CheckDestroy: testAccCheckUserScramCredentialDestroy,
-		Steps:        compatSteps(t, config),
+`, name))),
 	})
 }
