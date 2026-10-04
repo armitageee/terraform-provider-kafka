@@ -4,10 +4,6 @@ import (
 	"fmt"
 	"slices"
 	"strings"
-
-	"github.com/hashicorp/go-cty/cty"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 )
 
 // MapEq compares two maps, and checks that the keys and values are the same
@@ -56,49 +52,4 @@ func strPtrMapToStrMap(c map[string]*string) map[string]string {
 		foo[k] = *v
 	}
 	return foo
-}
-
-func validateDiagFunc(validateFunc func(interface{}, string) ([]string, []error)) schema.SchemaValidateDiagFunc {
-	return func(i interface{}, path cty.Path) diag.Diagnostics {
-		warnings, errs := validateFunc(i, fmt.Sprintf("%+v", path))
-		var diags diag.Diagnostics
-		for _, warning := range warnings {
-			diags = append(diags, diag.Diagnostic{
-				Severity: diag.Warning,
-				Summary:  warning,
-			})
-		}
-		for _, err := range errs {
-			diags = append(diags, diag.Diagnostic{
-				Severity: diag.Error,
-				Summary:  err.Error(),
-			})
-		}
-		return diags
-	}
-}
-
-func intEitherNegativeOneOrAtLeastOne() schema.SchemaValidateDiagFunc {
-	minVal := 1
-	return func(i interface{}, p cty.Path) diag.Diagnostics {
-		var diags diag.Diagnostics
-		v, ok := i.(int)
-		if !ok {
-			diags = append(diags, diag.Diagnostic{
-				Severity: diag.Error,
-				Summary:  "expected type to be integer",
-			})
-			return diags
-		}
-
-		if v < minVal && v != -1 {
-			diags = append(diags, diag.Diagnostic{
-				Severity: diag.Error,
-				Summary:  fmt.Sprintf("expected to be either -1 or at least %d, got %d", minVal, v),
-			})
-			return diags
-		}
-
-		return diags
-	}
 }

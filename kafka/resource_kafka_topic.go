@@ -2,372 +2,309 @@ package kafka
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
-	"strconv"
 	"time"
 
-	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/retry"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/validation"
+	"github.com/hashicorp/terraform-plugin-framework-validators/int64validator"
+	"github.com/hashicorp/terraform-plugin-framework/diag"
+	"github.com/hashicorp/terraform-plugin-framework/path"
+	"github.com/hashicorp/terraform-plugin-framework/resource"
+	"github.com/hashicorp/terraform-plugin-framework/resource/identityschema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
+	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
-func kafkaTopicResource() *schema.Resource {
-	return &schema.Resource{
-		CreateContext: topicCreate,
-		ReadContext:   topicRead,
-		UpdateContext: topicUpdate,
-		DeleteContext: topicDelete,
-		Importer: &schema.ResourceImporter{
-			// ID == topic name, so import by ID and import by identity are the same.
-			StateContext: schema.ImportStatePassthroughWithIdentity("name"),
-		},
-		// Identity lets `terraform query` (list resource) and import blocks
-		// address a topic without guessing the ID format.
-		Identity: &schema.ResourceIdentity{
-			SchemaFunc: func() map[string]*schema.Schema {
-				return map[string]*schema.Schema{
-					"name": {
-						Type:              schema.TypeString,
-						RequiredForImport: true,
-						Description:       "The name of the topic.",
-					},
-				}
+type topicResource struct {
+	client *LazyClient
+}
+
+var (
+	_ resource.ResourceWithConfigure   = (*topicResource)(nil)
+	_ resource.ResourceWithImportState = (*topicResource)(nil)
+	_ resource.ResourceWithIdentity    = (*topicResource)(nil)
+	_ resource.ResourceWithModifyPlan  = (*topicResource)(nil)
+)
+
+func newTopicResource() resource.Resource { return &topicResource{} }
+
+type topicModel struct {
+	ID                types.String `tfsdk:"id"`
+	Name              types.String `tfsdk:"name"`
+	Partitions        types.Int64  `tfsdk:"partitions"`
+	ReplicationFactor types.Int64  `tfsdk:"replication_factor"`
+	Config            types.Map    `tfsdk:"config"`
+}
+
+type topicIdentityModel struct {
+	Name types.String `tfsdk:"name"`
+}
+
+func (r *topicResource) Metadata(_ context.Context, _ resource.MetadataRequest, resp *resource.MetadataResponse) {
+	resp.TypeName = "kafka_topic"
+}
+
+func (r *topicResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
+	resp.Schema = schema.Schema{
+		Description: "A resource for managing Kafka topics. Supports creating topics with custom configurations and increasing partition counts without recreation.",
+		Attributes: map[string]schema.Attribute{
+			"id": schema.StringAttribute{
+				Computed:      true,
+				Description:   "The topic name.",
+				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 			},
-		},
-		CustomizeDiff: customDiff,
-		Schema: map[string]*schema.Schema{
-			"name": {
-				Type:        schema.TypeString,
+			"name": schema.StringAttribute{
+				Required:      true,
+				Description:   "The name of the topic.",
+				PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()},
+			},
+			"partitions": schema.Int64Attribute{
 				Required:    true,
-				ForceNew:    true,
-				Description: "The name of the topic.",
+				Description: "Number of partitions.",
+				Validators:  []validator.Int64{int64validator.AtLeast(1)},
+				// Kafka can only add partitions; fewer means a new topic.
+				PlanModifiers: []planmodifier.Int64{int64planmodifier.RequiresReplaceIf(
+					func(_ context.Context, req planmodifier.Int64Request, resp *int64planmodifier.RequiresReplaceIfFuncResponse) {
+						resp.RequiresReplace = req.PlanValue.ValueInt64() < req.StateValue.ValueInt64()
+					},
+					"Decreasing partitions recreates the topic.",
+					"Decreasing partitions recreates the topic.",
+				)},
 			},
-			"partitions": {
-				Type:         schema.TypeInt,
-				Required:     true,
-				Description:  "Number of partitions.",
-				ValidateFunc: validation.IntAtLeast(1),
+			"replication_factor": schema.Int64Attribute{
+				Required:    true,
+				Description: "Number of replicas. If using Confluent Kafka and setting placement constraints, set this to `-1`.",
+				Validators:  []validator.Int64{replicationFactorValidator{}},
 			},
-			"replication_factor": {
-				Type:             schema.TypeInt,
-				Required:         true,
-				ForceNew:         false,
-				Description:      "Number of replicas. If using Confluent Kafka and setting placement constraints, set this to `-1`.",
-				DiffSuppressFunc: replicationFactorDiffSuppressFunc,
-				ValidateDiagFunc: intEitherNegativeOneOrAtLeastOne(),
-			},
-			"config": {
-				Type:        schema.TypeMap,
+			"config": schema.MapAttribute{
 				Optional:    true,
-				ForceNew:    false,
+				ElementType: types.StringType,
 				Description: "A map of string k/v attributes.",
-				Elem:        schema.TypeString,
 			},
 		},
 	}
 }
 
-func topicCreate(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
-	c := meta.(*LazyClient)
-	t := metaToTopic(d, meta)
+func (r *topicResource) IdentitySchema(_ context.Context, _ resource.IdentitySchemaRequest, resp *resource.IdentitySchemaResponse) {
+	resp.IdentitySchema = identityschema.Schema{
+		Attributes: map[string]identityschema.Attribute{
+			"name": identityschema.StringAttribute{RequiredForImport: true, Description: "The name of the topic."},
+		},
+	}
+}
 
-	err := c.CreateTopic(t)
+func (r *topicResource) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
+	r.client = clientFrom(req.ProviderData, &resp.Diagnostics)
+}
+
+func modelToTopic(ctx context.Context, m topicModel) (Topic, error) {
+	var diags diag.Diagnostics
+	config := stringMap(ctx, m.Config, &diags)
+	if diags.HasError() {
+		return Topic{}, errors.New("invalid config map")
+	}
+	conf := make(map[string]*string, len(config))
+	for k, v := range config {
+		conf[k] = &v
+	}
+	return Topic{
+		Name:              m.Name.ValueString(),
+		Partitions:        int32(m.Partitions.ValueInt64()),
+		ReplicationFactor: int16(m.ReplicationFactor.ValueInt64()),
+		Config:            conf,
+	}, nil
+}
+
+func (r *topicResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
+	var plan topicModel
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	t, err := modelToTopic(ctx, plan)
 	if err != nil {
-		return diag.FromErr(err)
+		resp.Diagnostics.AddError("Invalid topic", err.Error())
+		return
 	}
-
-	stateConf := &retry.StateChangeConf{
-		Pending:      []string{"Pending"},
-		Target:       []string{"Created"},
-		Refresh:      topicCreateFunc(c, t),
-		Timeout:      time.Duration(c.Config.Timeout) * time.Second,
-		Delay:        1 * time.Second,
-		PollInterval: 2 * time.Second,
+	if err := r.client.CreateTopic(t); err != nil {
+		resp.Diagnostics.AddError("Creating topic "+t.Name, err.Error())
+		return
 	}
-
-	if _, err := stateConf.WaitForStateContext(ctx); err != nil {
-		return diag.FromErr(fmt.Errorf("error waiting for topic (%s) to be created: %s", t.Name, err))
+	err = waitFor(ctx, "topic "+t.Name+" to be created", r.client.timeout(), time.Second, 2*time.Second, func() (bool, error) {
+		_, err := r.client.ReadTopic(t.Name, true)
+		var missing TopicMissingError
+		if errors.As(err, &missing) {
+			return false, nil
+		}
+		return err == nil, err
+	})
+	if err != nil {
+		resp.Diagnostics.AddError("Creating topic "+t.Name, err.Error())
+		return
 	}
-
-	d.SetId(t.Name)
-	if err := setTopicIdentity(d, t.Name); err != nil {
-		return diag.FromErr(err)
-	}
-	return nil
+	plan.ID = types.StringValue(t.Name)
+	resp.Diagnostics.Append(resp.State.Set(ctx, plan)...)
+	resp.Diagnostics.Append(resp.Identity.Set(ctx, topicIdentityModel{Name: plan.Name})...)
 }
 
-func topicCreateFunc(client *LazyClient, t Topic) retry.StateRefreshFunc {
-	return func() (result interface{}, s string, err error) {
-		topic, err := client.ReadTopic(t.Name, true)
-		switch e := err.(type) {
-		case TopicMissingError:
-			return topic, "Pending", nil
-		case nil:
-			return topic, "Created", nil
-		default:
-			return topic, "Error", e
-		}
+func (r *topicResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
+	var state topicModel
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	name := state.ID.ValueString()
+	topic, err := r.client.ReadTopic(name, false)
+	var missing TopicMissingError
+	if errors.As(err, &missing) {
+		resp.State.RemoveResource(ctx)
+		return
+	}
+	if err != nil {
+		resp.Diagnostics.AddError("Reading topic "+name, err.Error())
+		return
+	}
+
+	state.ID = types.StringValue(topic.Name)
+	state.Name = types.StringValue(topic.Name)
+	state.Partitions = types.Int64Value(int64(topic.Partitions))
+	// -1 (Confluent placement constraints) stays as configured: Kafka
+	// reports the real replica count, which the config does not pin.
+	if state.ReplicationFactor.ValueInt64() != -1 || topic.ReplicationFactor <= 1 {
+		state.ReplicationFactor = types.Int64Value(int64(topic.ReplicationFactor))
+	}
+	conf := strPtrMapToStrMap(topic.Config)
+	if len(conf) == 0 && (state.Config.IsNull() || len(state.Config.Elements()) == 0) {
+		// Keep null (no config attribute) or {} as the state had it.
+	} else {
+		m, d := types.MapValueFrom(ctx, types.StringType, conf)
+		resp.Diagnostics.Append(d...)
+		state.Config = m
+	}
+	resp.Diagnostics.Append(resp.State.Set(ctx, state)...)
+	resp.Diagnostics.Append(resp.Identity.Set(ctx, topicIdentityModel{Name: state.Name})...)
+}
+
+// ModifyPlan: replication_factor changes in place only when the brokers can
+// reassign partitions (Kafka >= 2.4); otherwise the topic is recreated.
+func (r *topicResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanRequest, resp *resource.ModifyPlanResponse) {
+	if req.State.Raw.IsNull() || req.Plan.Raw.IsNull() || r.client == nil {
+		return
+	}
+	var plan, state topicModel
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
+	if resp.Diagnostics.HasError() || plan.ReplicationFactor.IsUnknown() {
+		return
+	}
+	newRF := plan.ReplicationFactor.ValueInt64()
+	if newRF == state.ReplicationFactor.ValueInt64() || newRF == -1 {
+		return
+	}
+	canAlter, err := r.client.CanAlterReplicationFactor()
+	if err != nil {
+		resp.Diagnostics.AddError("Checking whether replication_factor can change in place", err.Error())
+		return
+	}
+	if !canAlter {
+		log.Println("[INFO] Need Kafka >= 2.4.0 to update replication_factor in-place")
+		resp.RequiresReplace = append(resp.RequiresReplace, path.Root("replication_factor"))
 	}
 }
 
-func topicUpdate(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
-	c := meta.(*LazyClient)
-	t := metaToTopic(d, meta)
-
-	if err := c.UpdateTopic(t); err != nil {
-		return diag.FromErr(err)
+func (r *topicResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
+	var plan, state topicModel
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	t, err := modelToTopic(ctx, plan)
+	if err != nil {
+		resp.Diagnostics.AddError("Invalid topic", err.Error())
+		return
+	}
+	if err := r.client.UpdateTopic(t); err != nil {
+		resp.Diagnostics.AddError("Updating topic "+t.Name, err.Error())
+		return
 	}
 
-	// update replica count of existing partitions before adding new ones
-	if d.HasChange("replication_factor") {
-		oi, ni := d.GetChange("replication_factor")
-		oldRF := oi.(int)
-		newRF := ni.(int)
-
-		log.Printf("[INFO] Updating replication_factor from %d to %d", oldRF, newRF)
-		t.ReplicationFactor = int16(newRF)
-
-		if err := c.AlterReplicationFactor(t); err != nil {
-			return diag.FromErr(err)
+	// Replicas of existing partitions first, then new partitions.
+	newRF := plan.ReplicationFactor.ValueInt64()
+	if newRF != state.ReplicationFactor.ValueInt64() && newRF != -1 {
+		log.Printf("[INFO] Updating replication_factor from %d to %d", state.ReplicationFactor.ValueInt64(), newRF)
+		if err := r.client.AlterReplicationFactor(t); err != nil {
+			resp.Diagnostics.AddError("Updating replication_factor of "+t.Name, err.Error())
+			return
 		}
-
-		if err := waitForRFUpdate(ctx, c, d.Id()); err != nil {
-			return diag.FromErr(err)
-		}
-	}
-
-	if d.HasChange("partitions") {
-		// update should only be called when we're increasing partitions
-		oi, ni := d.GetChange("partitions")
-		oldPartitions := oi.(int)
-		newPartitions := ni.(int)
-		log.Printf("[INFO] Updating partitions from %d to %d", oldPartitions, newPartitions)
-		t.Partitions = int32(newPartitions)
-
-		if err := c.AddPartitions(t); err != nil {
-			return diag.FromErr(err)
-		}
-	}
-
-	if err := waitForTopicRefresh(ctx, c, d.Id(), t); err != nil {
-		return diag.FromErr(err)
-	}
-
-	return nil
-}
-
-func waitForRFUpdate(ctx context.Context, client *LazyClient, topic string) error {
-	refresh := func() (interface{}, string, error) {
-		isRFUpdating, err := client.IsReplicationFactorUpdating(topic)
+		err := waitFor(ctx, "replication_factor of "+t.Name, r.client.timeout(), time.Second, 2*time.Second, func() (bool, error) {
+			updating, err := r.client.IsReplicationFactorUpdating(t.Name)
+			return !updating, err
+		})
 		if err != nil {
-			return nil, "Error", err
-		} else if isRFUpdating {
-			return nil, "Updating", nil
-		} else {
-			return "not-nil", "Ready", nil
+			resp.Diagnostics.AddError("Updating replication_factor of "+t.Name, err.Error())
+			return
+		}
+	}
+	if plan.Partitions.ValueInt64() != state.Partitions.ValueInt64() {
+		log.Printf("[INFO] Updating partitions from %d to %d", state.Partitions.ValueInt64(), plan.Partitions.ValueInt64())
+		if err := r.client.AddPartitions(t); err != nil {
+			resp.Diagnostics.AddError("Adding partitions to "+t.Name, err.Error())
+			return
 		}
 	}
 
-	timeout := time.Duration(client.Config.Timeout) * time.Second
-	stateConf := &retry.StateChangeConf{
-		Pending:      []string{"Updating"},
-		Target:       []string{"Ready"},
-		Refresh:      refresh,
-		Timeout:      timeout,
-		Delay:        1 * time.Second,
-		PollInterval: 1 * time.Second,
-		MinTimeout:   2 * time.Second,
-	}
-
-	if _, err := stateConf.WaitForStateContext(ctx); err != nil {
-		return fmt.Errorf(
-			"error waiting for topic (%s) replication_factor to update: %s",
-			topic, err)
-	}
-
-	return nil
-}
-
-func waitForTopicRefresh(ctx context.Context, client *LazyClient, topic string, expected Topic) error {
-	timeout := time.Duration(client.Config.Timeout) * time.Second
-	stateConf := &retry.StateChangeConf{
-		Pending:      []string{"Updating"},
-		Target:       []string{"Ready"},
-		Refresh:      topicRefreshFunc(client, topic, expected),
-		Timeout:      timeout,
-		Delay:        1 * time.Second,
-		PollInterval: 1 * time.Second,
-		MinTimeout:   2 * time.Second,
-	}
-
-	if _, err := stateConf.WaitForStateContext(ctx); err != nil {
-		return fmt.Errorf(
-			"error waiting for topic (%s) to become ready: %s",
-			topic, err)
-	}
-
-	return nil
-}
-
-func topicRefreshFunc(client *LazyClient, topic string, expected Topic) retry.StateRefreshFunc {
-	return func() (result interface{}, s string, err error) {
-		log.Printf("[DEBUG] waiting for topic to update %s", topic)
-		actual, err := client.ReadTopic(topic, true)
+	var last string
+	err = waitFor(ctx, "topic "+t.Name+" to be updated", r.client.timeout(), time.Second, 2*time.Second, func() (bool, error) {
+		actual, err := r.client.ReadTopic(t.Name, true)
 		if err != nil {
-			log.Printf("[ERROR] could not read topic %s, %s", topic, err)
-			return actual, "Error", err
+			return false, err
 		}
+		last = fmt.Sprintf("%v != %v", strPtrMapToStrMap(actual.Config), strPtrMapToStrMap(t.Config))
+		return t.Equal(actual), nil
+	})
+	if err != nil {
+		resp.Diagnostics.AddError("Updating topic "+t.Name, fmt.Sprintf("%s (last seen: %s)", err, last))
+		return
+	}
+	plan.ID = state.ID
+	resp.Diagnostics.Append(resp.State.Set(ctx, plan)...)
+	resp.Diagnostics.Append(resp.Identity.Set(ctx, topicIdentityModel{Name: plan.Name})...)
+}
 
-		if expected.Equal(actual) {
-			return actual, "Ready", nil
+func (r *topicResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
+	var state topicModel
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	name := state.Name.ValueString()
+	if err := r.client.DeleteTopic(name); err != nil {
+		resp.Diagnostics.AddError("Deleting topic "+name, err.Error())
+		return
+	}
+	err := waitFor(ctx, "topic "+name+" to be deleted", 300*time.Second, 3*time.Second, 2*time.Second, func() (bool, error) {
+		_, err := r.client.ReadTopic(name, true)
+		var missing TopicMissingError
+		if errors.As(err, &missing) {
+			return true, nil
 		}
-
-		return nil, fmt.Sprintf("%v != %v", strPtrMapToStrMap(actual.Config), strPtrMapToStrMap(expected.Config)), nil
+		return false, err
+	})
+	if err != nil {
+		resp.Diagnostics.AddError("Deleting topic "+name, err.Error())
 	}
 }
 
-func topicDelete(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
-	c := meta.(*LazyClient)
-	t := metaToTopic(d, meta)
-
-	err := c.DeleteTopic(t.Name)
-	if err != nil {
-		return diag.FromErr(err)
+// ImportState: by ID (the topic name) or by identity { name }.
+func (r *topicResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	resource.ImportStatePassthroughWithIdentity(ctx, path.Root("id"), path.Root("name"), req, resp)
+	if req.ID != "" {
+		resp.Diagnostics.Append(resp.Identity.Set(ctx, topicIdentityModel{Name: types.StringValue(req.ID)})...)
 	}
-
-	log.Printf("[DEBUG] waiting for topic to delete? %s", t.Name)
-	stateConf := &retry.StateChangeConf{
-		Pending:      []string{"Pending"},
-		Target:       []string{"Deleted"},
-		Refresh:      topicDeleteFunc(c, d.Id(), t),
-		Timeout:      300 * time.Second,
-		Delay:        3 * time.Second,
-		PollInterval: 2 * time.Second,
-		MinTimeout:   20 * time.Second,
-	}
-	_, err = stateConf.WaitForStateContext(ctx)
-	if err != nil {
-		return diag.FromErr(fmt.Errorf("error waiting for topic (%s) to delete: %s", d.Id(), err))
-	}
-
-	log.Printf("[DEBUG] deletetopic done! %s", t.Name)
-	d.SetId("")
-	return nil
-}
-
-func topicDeleteFunc(client *LazyClient, id string, t Topic) retry.StateRefreshFunc {
-	return func() (result interface{}, s string, err error) {
-		topic, err := client.ReadTopic(t.Name, true)
-
-		log.Printf("[DEBUG] deletetopic read %s, %v", t.Name, err)
-		if err != nil {
-			_, ok := err.(TopicMissingError)
-			if ok {
-				return topic, "Deleted", nil
-			}
-			return topic, "UNKNOWN", err
-		}
-		return topic, "Pending", nil
-	}
-}
-
-func topicRead(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
-	name := d.Id()
-	client := meta.(*LazyClient)
-	topic, err := client.ReadTopic(name, false)
-
-	if err != nil {
-		log.Printf("[ERROR] Error getting topics %s from Kafka", err)
-		_, ok := err.(TopicMissingError)
-		if ok {
-			d.SetId("")
-			return nil
-		}
-
-		return diag.FromErr(err)
-	}
-
-	log.Printf("[DEBUG] Setting the state from Kafka %v", topic)
-	errSet := errSetter{d: d}
-	errSet.Set("name", topic.Name)
-	errSet.Set("partitions", topic.Partitions)
-	errSet.Set("replication_factor", topic.ReplicationFactor)
-	errSet.Set("config", topic.Config)
-
-	if errSet.err != nil {
-		return diag.FromErr(errSet.err)
-	}
-	if err := setTopicIdentity(d, topic.Name); err != nil {
-		return diag.FromErr(err)
-	}
-
-	return nil
-}
-
-func setTopicIdentity(d *schema.ResourceData, name string) error {
-	identity, err := d.Identity()
-	if err != nil {
-		return err
-	}
-	return identity.Set("name", name)
-}
-
-func customDiff(ctx context.Context, diff *schema.ResourceDiff, v interface{}) error {
-	// Skip custom logic for resource creation.
-	if diff.Id() == "" {
-		return nil
-	}
-	if diff.HasChange("partitions") {
-		log.Printf("[INFO] Partitions have changed!")
-		o, n := diff.GetChange("partitions")
-		oi := o.(int)
-		ni := n.(int)
-		log.Printf("[INFO] Partitions is changing from %d to %d", oi, ni)
-		if ni < oi {
-			log.Printf("Partitions decreased from %d to %d. Forcing new resource", oi, ni)
-			if err := diff.ForceNew("partitions"); err != nil {
-				return err
-			}
-		}
-	}
-
-	if diff.HasChange("replication_factor") {
-		log.Printf("[INFO] Checking the diff!")
-		client := v.(*LazyClient)
-
-		canAlterRF, err := client.CanAlterReplicationFactor()
-		if err != nil {
-			return err
-		}
-
-		if !canAlterRF {
-			log.Println("[INFO] Need Kafka >= 2.4.0 to update replication_factor in-place")
-			if err := diff.ForceNew("replication_factor"); err != nil {
-				return err
-			}
-		}
-	}
-
-	return nil
-}
-
-// This function exists to ignore the diff on replication_factor when
-// using Confluent's custom placement constraints, otherwise it will
-// be reported as perpetual drift and Terraform will try to fix it and blow up
-func replicationFactorDiffSuppressFunc(k, oldValue, newValue string, d *schema.ResourceData) bool {
-	log.Printf("[INFO] Comparing oldValue '%s' and newValue '%s' for replication_factor", oldValue, newValue)
-	oldInt, err := strconv.Atoi(oldValue)
-	if err != nil {
-		log.Printf("[ERROR] Error converting oldValue '%s' to int", oldValue)
-		return false
-	}
-	newInt, err := strconv.Atoi(newValue)
-	if err != nil {
-		log.Printf("[ERROR] Error converting newValue '%s' to int", newValue)
-		return false
-	}
-
-	return oldInt > 1 && newInt == -1
 }

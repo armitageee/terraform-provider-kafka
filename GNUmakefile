@@ -11,9 +11,9 @@ test:
 testacc:
 	GODEBUG=x509ignoreCN=0 \
 	KAFKA_BOOTSTRAP_SERVERS=$(KAFKA_BOOTSTRAP_SERVERS) \
-	KAFKA_CA_CERT=../secrets/ca.crt \
-	KAFKA_CLIENT_CERT=../secrets/client.pem \
-	KAFKA_CLIENT_KEY=../secrets/client.key \
+	KAFKA_CA_CERT=$(CURDIR)/secrets/ca.crt \
+	KAFKA_CLIENT_CERT=$(CURDIR)/secrets/client.pem \
+	KAFKA_CLIENT_KEY=$(CURDIR)/secrets/client.key \
 	KAFKA_CLIENT_KEY_PASSPHRASE=test-pass \
 	KAFKA_SKIP_VERIFY=false \
 	KAFKA_ENABLE_TLS=true \

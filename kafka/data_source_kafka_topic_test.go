@@ -19,7 +19,7 @@ func TestAcc_TopicData(t *testing.T) {
 	bs := testBootstrapServers[0]
 
 	r.Test(t, r.TestCase{
-		ProtoV5ProviderFactories: protoV5ProviderFactories(),
+		ProtoV6ProviderFactories: protoV6ProviderFactories(),
 		//PreCheck: func() { testAccPreCheck(t) },
 		Steps: []r.TestStep{
 			{

@@ -2,86 +2,58 @@ package kafka
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"os"
 	"strings"
 	"testing"
 
-	"github.com/hashicorp/terraform-plugin-go/tfprotov5"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
+	"github.com/hashicorp/terraform-plugin-framework/diag"
+	"github.com/hashicorp/terraform-plugin-framework/providerserver"
+	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/hashicorp/terraform-plugin-go/tfprotov6"
 )
 
-var testProvider, _ = overrideProvider()
+// testProvider gives acceptance-test checks a Kafka client configured like
+// the provider in the tests: bootstrap servers from KAFKA_BOOTSTRAP_SERVERS,
+// everything else from the same KAFKA_* environment variables.
+var testProvider = accProvider{client: newAccTestClient()}
 var testBootstrapServers []string = bootstrapServersFromEnv()
 
-func TestProvider(t *testing.T) {
-	if err := Provider().InternalValidate(); err != nil {
-		t.Fatalf("err: %s", err)
+type accProvider struct{ client *LazyClient }
+
+func (p accProvider) Meta() any { return p.client }
+
+func newAccTestClient() *LazyClient {
+	ctx := context.Background()
+	brokers, _ := types.ListValueFrom(ctx, types.StringType, bootstrapServersFromEnv())
+	var diags diag.Diagnostics
+	config := buildConfig(ctx, providerModel{
+		BootstrapServers: brokers,
+		KafkaVersion:     types.StringValue("3.8.0"),
+	}, &diags)
+	if diags.HasError() {
+		log.Printf("[ERROR] acceptance test client: %v", diags)
+		return nil
 	}
+	return &LazyClient{Config: config}
 }
 
 func testAccPreCheck(t *testing.T) {
-	meta := testProvider.Meta()
-	if meta == nil {
-		t.Fatal("Could not construct client")
-	}
-	client := meta.(*LazyClient)
+	client := testProvider.client
 	if client == nil {
-		t.Fatal("No client")
+		t.Fatal("Could not construct client")
 	}
 	if err := client.init(); err != nil {
 		t.Fatalf("Client could not be initialized %v", err)
 	}
 }
 
-// protoV5ProviderFactories serves the provider the way main.go does (SDKv2 +
-// framework muxed), so acceptance tests also cover list resources and
-// identity. Terraform configures it from the test config and KAFKA_* env.
-func protoV5ProviderFactories() map[string]func() (tfprotov5.ProviderServer, error) {
-	return map[string]func() (tfprotov5.ProviderServer, error){
-		"kafka": func() (tfprotov5.ProviderServer, error) {
-			newServer, err := NewMuxServer(context.Background(), Provider())
-			if err != nil {
-				return nil, err
-			}
-			return newServer(), nil
-		},
+// protoV6ProviderFactories serves the provider exactly as main.go does.
+// Terraform configures it from the test config and KAFKA_* env.
+func protoV6ProviderFactories() map[string]func() (tfprotov6.ProviderServer, error) {
+	return map[string]func() (tfprotov6.ProviderServer, error){
+		"kafka": providerserver.NewProtocol6WithError(New("test")()),
 	}
-}
-
-func overrideProvider() (*schema.Provider, error) {
-	log.Println("[INFO] Setting up override for a provider")
-	provider := Provider()
-
-	rc, err := accTestProviderConfig()
-	if err != nil {
-		return nil, err
-	}
-	diags := provider.Configure(context.Background(), rc)
-	if diags.HasError() {
-		log.Printf("[ERROR] Could not configure provider %v", diags)
-		return nil, fmt.Errorf("could not configure provider")
-	}
-
-	return provider, nil
-}
-
-func accTestProviderConfig() (*terraform.ResourceConfig, error) {
-	bootstrapServers := bootstrapServersFromEnv()
-	bs := make([]interface{}, len(bootstrapServers))
-
-	for i, s := range bootstrapServers {
-		bs[i] = s
-	}
-
-	raw := map[string]interface{}{
-		"bootstrap_servers": bs,
-		"kafka_version":     "3.8.0",
-	}
-
-	return terraform.NewResourceConfigRaw(raw), nil
 }
 
 func bootstrapServersFromEnv() []string {

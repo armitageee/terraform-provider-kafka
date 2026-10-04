@@ -118,7 +118,7 @@ Since 0.16.0 `kafka_acl` also has a resource identity (the same seven fields), s
 
 ### Read-Only
 
-- `id` (String) The ID of this resource.
+- `id` (String) The ACL as `acl_principal|acl_host|acl_operation|acl_permission_type|resource_type|resource_name|resource_pattern_type_filter`.
 
 ## Argument Reference
 

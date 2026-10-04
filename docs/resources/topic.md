@@ -113,7 +113,7 @@ terraform import kafka_topic.example example-topic
 
 ### Read-Only
 
-- `id` (String) The ID of this resource.
+- `id` (String) The topic name.
 
 ## Configuration Parameters
 

@@ -103,7 +103,7 @@ resource "kafka_acl" "consumer_group" {
 ### Read-Only
 
 - `config` (Map of String) A map of string k/v attributes.
-- `id` (String) The ID of this resource.
+- `id` (String) The topic name.
 - `partitions` (Number) Number of partitions.
 - `replication_factor` (Number) Number of replicas.
 

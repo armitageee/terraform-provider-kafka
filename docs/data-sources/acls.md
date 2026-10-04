@@ -35,19 +35,19 @@ output "acl_import_ids" {
 
 ### Read-Only
 
-- `acls` (List of Object) Matching ACLs, sorted by ID. (see [below for nested schema](#nestedatt--acls))
-- `id` (String) The ID of this resource.
+- `acls` (Attributes List) Matching ACLs, sorted by ID. (see [below for nested schema](#nestedatt--acls))
+- `id` (String) Derived from the filters.
 
 <a id="nestedatt--acls"></a>
 ### Nested Schema for `acls`
 
 Read-Only:
 
-- `acl_host` (String)
-- `acl_operation` (String)
-- `acl_permission_type` (String)
-- `acl_principal` (String)
-- `id` (String)
-- `resource_name` (String)
-- `resource_pattern_type_filter` (String)
-- `resource_type` (String)
+- `acl_host` (String) Host the principal may connect from, `*` for any.
+- `acl_operation` (String) Operation, e.g. `Read`, `Write`, `All`.
+- `acl_permission_type` (String) `Allow` or `Deny`.
+- `acl_principal` (String) Principal, e.g. `User:alice`.
+- `id` (String) The `kafka_acl` resource ID (pipe-delimited), usable with `terraform import`.
+- `resource_name` (String) Resource name or prefix.
+- `resource_pattern_type_filter` (String) `Literal` or `Prefixed`.
+- `resource_type` (String) `Topic`, `Group`, `Cluster`, `TransactionalID` or `DelegationToken`.

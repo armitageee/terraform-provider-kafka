@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/IBM/sarama"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 )
 
 type Topic struct {
@@ -18,7 +17,9 @@ type Topic struct {
 func (t *Topic) Equal(other Topic) bool {
 	mape := MapEq(other.Config, t.Config)
 
-	if mape == nil && (other.Name == t.Name) && (other.Partitions == t.Partitions) && (other.ReplicationFactor == t.ReplicationFactor) {
+	// -1 (Confluent placement constraints) accepts whatever Kafka reports.
+	rfEqual := t.ReplicationFactor == -1 || other.ReplicationFactor == t.ReplicationFactor
+	if mape == nil && (other.Name == t.Name) && (other.Partitions == t.Partitions) && rfEqual {
 		return true
 	}
 	return false
@@ -76,28 +77,4 @@ func isDefault(tc *sarama.ConfigEntry, version int) bool {
 	return tc.Source == sarama.SourceDefault ||
 		tc.Source == sarama.SourceStaticBroker ||
 		tc.Source == sarama.SourceDynamicDefaultBroker
-}
-
-func metaToTopic(d *schema.ResourceData, meta interface{}) Topic {
-	topicName := d.Get("name").(string)
-	partitions := d.Get("partitions").(int)
-	replicationFactor := d.Get("replication_factor").(int)
-	convertedPartitions := int32(partitions)
-	convertedRF := int16(replicationFactor)
-	config := d.Get("config").(map[string]interface{})
-
-	m2 := make(map[string]*string)
-	for key, value := range config {
-		switch value := value.(type) {
-		case string:
-			m2[key] = &value
-		}
-	}
-
-	return Topic{
-		Name:              topicName,
-		Partitions:        convertedPartitions,
-		ReplicationFactor: convertedRF,
-		Config:            m2,
-	}
 }

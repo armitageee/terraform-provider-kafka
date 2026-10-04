@@ -2,363 +2,146 @@ package kafka
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"strings"
 	"time"
 
 	"github.com/IBM/sarama"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/retry"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/validation"
+	"github.com/hashicorp/terraform-plugin-framework-validators/int64validator"
+	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
+	"github.com/hashicorp/terraform-plugin-framework/diag"
+	"github.com/hashicorp/terraform-plugin-framework/path"
+	"github.com/hashicorp/terraform-plugin-framework/resource"
+	"github.com/hashicorp/terraform-plugin-framework/resource/identityschema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64default"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
+	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
+	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
 const defaultIterations int32 = 4096
 
-// getPasswordFromConfig extracts password from either 'password' or 'password_wo' field,
-// handling write-only fields by accessing raw config when necessary
-func getPasswordFromConfig(d interface{}) (string, error) {
-	var password, passwordWo string
-
-	// Extract standard values based on type
-	switch data := d.(type) {
-	case *schema.ResourceData:
-		password = data.Get("password").(string)
-		passwordWo = data.Get("password_wo").(string)
-
-		if password == "" && passwordWo == "" {
-			if rawConfig := data.GetRawConfig(); !rawConfig.IsNull() {
-				if passwordWoVal := rawConfig.GetAttr("password_wo"); !passwordWoVal.IsNull() && passwordWoVal.IsKnown() {
-					passwordWo = passwordWoVal.AsString()
-				}
-				if passwordVal := rawConfig.GetAttr("password"); !passwordVal.IsNull() && passwordVal.IsKnown() {
-					password = passwordVal.AsString()
-				}
-			}
-		}
-
-	case *schema.ResourceDiff:
-		password = data.Get("password").(string)
-		passwordWo = data.Get("password_wo").(string)
-
-		if password == "" && passwordWo == "" {
-			if rawConfig := data.GetRawConfig(); !rawConfig.IsNull() {
-				if passwordWoVal := rawConfig.GetAttr("password_wo"); !passwordWoVal.IsNull() && passwordWoVal.IsKnown() {
-					passwordWo = passwordWoVal.AsString()
-				}
-				if passwordVal := rawConfig.GetAttr("password"); !passwordVal.IsNull() && passwordVal.IsKnown() {
-					password = passwordVal.AsString()
-				}
-			}
-		}
-
-	default:
-		return "", fmt.Errorf("unsupported data type for password extraction")
-	}
-
-	// Since password and password_wo have ConflictsWith, only one can be set
-	// Return whichever one has a value
-	if password != "" {
-		return password, nil
-	}
-	if passwordWo != "" {
-		return passwordWo, nil
-	}
-
-	return "", fmt.Errorf("either 'password' or 'password_wo' must be provided with a non-empty value")
+type userScramCredentialResource struct {
+	client *LazyClient
 }
 
-func validatePasswordFields(ctx context.Context, d *schema.ResourceDiff, meta interface{}) error {
-	// Check if password values are known (they might be unknown during plan when using computed values)
-	rawConfig := d.GetRawConfig()
-	if !rawConfig.IsNull() {
-		passwordVal := rawConfig.GetAttr("password")
-		passwordWoVal := rawConfig.GetAttr("password_wo")
+var (
+	_ resource.ResourceWithConfigure      = (*userScramCredentialResource)(nil)
+	_ resource.ResourceWithImportState    = (*userScramCredentialResource)(nil)
+	_ resource.ResourceWithIdentity       = (*userScramCredentialResource)(nil)
+	_ resource.ResourceWithValidateConfig = (*userScramCredentialResource)(nil)
+)
 
-		// If both values are unknown (e.g., from random_password), skip validation during plan
-		passwordUnknown := !passwordVal.IsNull() && !passwordVal.IsKnown()
-		passwordWoUnknown := !passwordWoVal.IsNull() && !passwordWoVal.IsKnown()
+func newUserScramCredentialResource() resource.Resource { return &userScramCredentialResource{} }
 
-		if passwordUnknown || passwordWoUnknown {
-			// Values are unknown, will be validated during apply
-			return nil
-		}
-	}
-
-	_, err := getPasswordFromConfig(d)
-	if err != nil {
-		return fmt.Errorf("password validation failed: %v", err)
-	}
-	return nil
+type scramModel struct {
+	ID                types.String `tfsdk:"id"`
+	Username          types.String `tfsdk:"username"`
+	ScramMechanism    types.String `tfsdk:"scram_mechanism"`
+	ScramIterations   types.Int64  `tfsdk:"scram_iterations"`
+	Password          types.String `tfsdk:"password"`
+	PasswordWo        types.String `tfsdk:"password_wo"`
+	PasswordWoVersion types.String `tfsdk:"password_wo_version"`
 }
 
-func kafkaUserScramCredentialResource() *schema.Resource {
-	//lintignore:R011
-	return &schema.Resource{
-		CreateContext: userScramCredentialCreate,
-		ReadContext:   userScramCredentialRead,
-		UpdateContext: userScramCredentialUpdate,
-		DeleteContext: userScramCredentialDelete,
-		Importer: &schema.ResourceImporter{
-			StateContext: importSCRAM,
-		},
-		// Identity: user and mechanism. The password cannot be read back from
-		// Kafka, so an imported credential needs password_wo in config.
-		Identity: &schema.ResourceIdentity{
-			SchemaFunc: func() map[string]*schema.Schema {
-				return map[string]*schema.Schema{
-					"username":        {Type: schema.TypeString, RequiredForImport: true, Description: "The name of the credential."},
-					"scram_mechanism": {Type: schema.TypeString, RequiredForImport: true, Description: "SCRAM-SHA-256 or SCRAM-SHA-512."},
-				}
+type scramIdentityModel struct {
+	Username       types.String `tfsdk:"username"`
+	ScramMechanism types.String `tfsdk:"scram_mechanism"`
+}
+
+func (r *userScramCredentialResource) Metadata(_ context.Context, _ resource.MetadataRequest, resp *resource.MetadataResponse) {
+	resp.TypeName = "kafka_user_scram_credential"
+}
+
+func (r *userScramCredentialResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
+	notBlank := stringvalidator.RegexMatches(nonBlank, "must not be empty or whitespace")
+	resp.Schema = schema.Schema{
+		Description: "A resource for managing Kafka SCRAM user credentials for SASL authentication.",
+		Attributes: map[string]schema.Attribute{
+			"id": schema.StringAttribute{
+				Computed:      true,
+				Description:   "`username|scram_mechanism`.",
+				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 			},
-		},
-		CustomizeDiff: validatePasswordFields,
-		Schema: map[string]*schema.Schema{
-			"username": {
-				Type:        schema.TypeString,
-				Required:    true,
-				ForceNew:    true,
-				Description: "The name of the credential",
+			"username": schema.StringAttribute{
+				Required:      true,
+				Description:   "The name of the credential",
+				PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()},
 			},
-			"scram_mechanism": {
-				Type:             schema.TypeString,
-				Required:         true,
-				ForceNew:         true,
-				ValidateDiagFunc: validateDiagFunc(validation.StringInSlice([]string{sarama.SASLTypeSCRAMSHA256, sarama.SASLTypeSCRAMSHA512}, false)),
-				Description:      "The SCRAM mechanism used to generate the credential (SCRAM-SHA-256, SCRAM-SHA-512)",
+			"scram_mechanism": schema.StringAttribute{
+				Required:      true,
+				Description:   "The SCRAM mechanism used to generate the credential (SCRAM-SHA-256, SCRAM-SHA-512)",
+				Validators:    []validator.String{stringvalidator.OneOf(sarama.SASLTypeSCRAMSHA256, sarama.SASLTypeSCRAMSHA512)},
+				PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()},
 			},
-			"scram_iterations": {
-				Type:         schema.TypeInt,
-				Optional:     true,
-				ForceNew:     false,
-				Default:      defaultIterations,
-				ValidateFunc: validation.IntAtLeast(4096),
-				Description:  "The number of SCRAM iterations used when generating the credential",
-			},
-			"password": {
-				Type:          schema.TypeString,
-				Optional:      true,
-				ForceNew:      false,
-				ValidateFunc:  validation.StringIsNotWhiteSpace,
-				Description:   "The password of the credential (deprecated, use password_wo instead)",
-				Sensitive:     true,
-				ConflictsWith: []string{"password_wo"},
-			},
-			"password_wo": {
-				Type:          schema.TypeString,
-				Optional:      true,
-				ForceNew:      false,
-				ValidateFunc:  validation.StringIsNotWhiteSpace,
-				Description:   "The write-only password of the credential",
-				Sensitive:     true,
-				WriteOnly:     true,
-				ConflictsWith: []string{"password"},
-			},
-			"password_wo_version": {
-				Type:        schema.TypeString,
+			"scram_iterations": schema.Int64Attribute{
 				Optional:    true,
-				ForceNew:    false,
+				Computed:    true,
+				Default:     int64default.StaticInt64(int64(defaultIterations)),
+				Description: "The number of SCRAM iterations used when generating the credential",
+				Validators:  []validator.Int64{int64validator.AtLeast(4096)},
+			},
+			"password": schema.StringAttribute{
+				Optional:    true,
+				Sensitive:   true,
+				Description: "The password of the credential (deprecated, use password_wo instead)",
+				Validators: []validator.String{
+					notBlank,
+					stringvalidator.ConflictsWith(path.MatchRoot("password_wo")),
+				},
+			},
+			"password_wo": schema.StringAttribute{
+				Optional:    true,
+				Sensitive:   true,
+				WriteOnly:   true,
+				Description: "The write-only password of the credential",
+				Validators: []validator.String{
+					notBlank,
+					stringvalidator.ConflictsWith(path.MatchRoot("password")),
+				},
+			},
+			"password_wo_version": schema.StringAttribute{
+				Optional:    true,
 				Description: "Version identifier for the write-only password to track changes",
 			},
 		},
 	}
 }
 
-func importSCRAM(ctx context.Context, d *schema.ResourceData, m interface{}) ([]*schema.ResourceData, error) {
-	var parts []string
-	if d.Id() != "" {
-		parts = strings.Split(d.Id(), "|")
-	} else {
-		// Import by identity (import block with `identity`, or `terraform query`).
-		identity, err := d.Identity()
-		if err != nil {
-			return nil, err
-		}
-		parts = []string{identity.Get("username").(string), identity.Get("scram_mechanism").(string)}
-	}
-	if len(parts) == 2 {
-		// New format: username|scram_mechanism (for write-only passwords)
-		errSet := errSetter{d: d}
-		errSet.Set("username", parts[0])
-		errSet.Set("scram_mechanism", parts[1])
-		// For write-only import, password_wo and password_wo_version need to be set manually after import
-		if errSet.err != nil {
-			return nil, errSet.err
-		}
-	} else if len(parts) == 3 {
-		// Legacy format: username|scram_mechanism|password (for backward compatibility)
-		errSet := errSetter{d: d}
-		errSet.Set("username", parts[0])
-		errSet.Set("scram_mechanism", parts[1])
-		errSet.Set("password", parts[2])
-		if errSet.err != nil {
-			return nil, errSet.err
-		}
-	} else {
-		return nil, fmt.Errorf("failed importing resource; expected format is username|scram_mechanism (for write-only passwords) or username|scram_mechanism|password (legacy) - got %v segments instead of 2 or 3", len(parts))
-	}
-
-	// The ID never carries the password, whatever import form was used.
-	d.SetId(strings.Join(parts[:2], "|"))
-	if err := setSCRAMIdentity(d, parts[0], parts[1]); err != nil {
-		return nil, err
-	}
-	return []*schema.ResourceData{d}, nil
-}
-
-func userScramCredentialCreate(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
-	log.Printf("[INFO] Creating user scram credential")
-	c := meta.(*LazyClient)
-	userScramCredential, err := parseUserScramCredential(d)
-	if err != nil {
-		return diag.FromErr(err)
-	}
-
-	err = c.UpsertUserScramCredential(userScramCredential)
-	if err != nil {
-		log.Println("[ERROR] Failed to create user scram credential")
-		return diag.FromErr(err)
-	}
-
-	// AlterUserScramCredentials returns before every broker has applied the
-	// metadata change; a Describe routed to a lagging broker answers
-	// RESOURCE_NOT_FOUND and Read would then drop the resource from state.
-	// Same wait as kafka_quota / kafka_topic.
-	stateConf := &retry.StateChangeConf{
-		Pending:      []string{"Pending"},
-		Target:       []string{"Created"},
-		Refresh:      userScramCredentialCreatedFunc(c, userScramCredential),
-		Timeout:      time.Duration(c.Config.Timeout) * time.Second,
-		Delay:        1 * time.Second,
-		PollInterval: 2 * time.Second,
-	}
-	if _, err := stateConf.WaitForStateContext(ctx); err != nil {
-		return diag.FromErr(fmt.Errorf("error waiting for user scram credential (%s) to be created: %w", userScramCredential.ID(), err))
-	}
-
-	d.SetId(userScramCredential.ID())
-	return diag.FromErr(setSCRAMIdentity(d, userScramCredential.Name, userScramCredential.Mechanism.String()))
-}
-
-func userScramCredentialCreatedFunc(client *LazyClient, usc UserScramCredential) retry.StateRefreshFunc {
-	return func() (interface{}, string, error) {
-		found, err := client.DescribeUserScramCredential(usc.Name, usc.Mechanism.String())
-		switch err.(type) {
-		case nil:
-			return found, "Created", nil
-		case UserScramCredentialMissingError:
-			return nil, "Pending", nil
-		default:
-			return nil, "Error", err
-		}
+func (r *userScramCredentialResource) IdentitySchema(_ context.Context, _ resource.IdentitySchemaRequest, resp *resource.IdentitySchemaResponse) {
+	resp.IdentitySchema = identityschema.Schema{
+		Attributes: map[string]identityschema.Attribute{
+			"username":        identityschema.StringAttribute{RequiredForImport: true, Description: "The name of the credential."},
+			"scram_mechanism": identityschema.StringAttribute{RequiredForImport: true, Description: "SCRAM-SHA-256 or SCRAM-SHA-512."},
+		},
 	}
 }
 
-func userScramCredentialRead(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
-	log.Println("[INFO] Reading user scram credential")
-	c := meta.(*LazyClient)
-	username := d.Get("username").(string)
-	mechanism := d.Get("scram_mechanism").(string)
-
-	userScramCredential, err := c.DescribeUserScramCredential(username, mechanism)
-	if err != nil {
-		log.Printf("[ERROR] Error getting user scram credential %s from Kafka", err)
-		_, ok := err.(UserScramCredentialMissingError)
-		if ok {
-			d.SetId("")
-			return nil
-		}
-
-		return diag.FromErr(err)
-	}
-
-	log.Printf("[DEBUG] Setting the state from Kafka %v", userScramCredential)
-
-	errSet := errSetter{d: d}
-	errSet.Set("username", userScramCredential.Name)
-	errSet.Set("scram_mechanism", userScramCredential.Mechanism.String())
-	errSet.Set("scram_iterations", userScramCredential.Iterations)
-
-	if errSet.err != nil {
-		return diag.FromErr(errSet.err)
-	}
-
-	return diag.FromErr(setSCRAMIdentity(d, userScramCredential.Name, userScramCredential.Mechanism.String()))
+func (r *userScramCredentialResource) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
+	r.client = clientFrom(req.ProviderData, &resp.Diagnostics)
 }
 
-func setSCRAMIdentity(d *schema.ResourceData, username, mechanism string) error {
-	identity, err := d.Identity()
-	if err != nil {
-		return err
+// ValidateConfig: one of password / password_wo is required (the plan cannot
+// create a credential without one, and an imported credential needs it too).
+func (r *userScramCredentialResource) ValidateConfig(ctx context.Context, req resource.ValidateConfigRequest, resp *resource.ValidateConfigResponse) {
+	var m scramModel
+	resp.Diagnostics.Append(req.Config.Get(ctx, &m)...)
+	if resp.Diagnostics.HasError() || m.Password.IsUnknown() || m.PasswordWo.IsUnknown() {
+		return
 	}
-	if err := identity.Set("username", username); err != nil {
-		return err
+	if m.Password.ValueString() == "" && m.PasswordWo.ValueString() == "" {
+		resp.Diagnostics.AddError("Missing password",
+			"password validation failed: either 'password' or 'password_wo' must be provided with a non-empty value")
 	}
-	return identity.Set("scram_mechanism", mechanism)
 }
 
-func userScramCredentialUpdate(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
-	log.Printf("[INFO] Updating user scram credential")
-	c := meta.(*LazyClient)
-
-	// Only update if password-related fields have changed
-	if d.HasChange("password") || d.HasChange("password_wo") || d.HasChange("password_wo_version") || d.HasChange("scram_iterations") {
-		userScramCredential, err := parseUserScramCredential(d)
-		if err != nil {
-			return diag.FromErr(err)
-		}
-
-		err = c.UpsertUserScramCredential(userScramCredential)
-		if err != nil {
-			log.Println("[ERROR] Failed to update user scram credential")
-			return diag.FromErr(err)
-		}
-	}
-
-	return nil
-}
-
-func userScramCredentialDelete(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
-	log.Printf("[INFO] Deleting user scram credential")
-
-	c := meta.(*LazyClient)
-
-	scram_mechanism_string := d.Get("scram_mechanism").(string)
-	mechanism := convertedScramMechanism(scram_mechanism_string)
-	userScramCredential := UserScramCredential{
-		Name:      d.Get("username").(string),
-		Mechanism: mechanism,
-	}
-
-	err := c.DeleteUserScramCredential(userScramCredential)
-	if err != nil {
-		log.Println("[ERROR] Failed to delete user scram credential")
-		return diag.FromErr(err)
-	}
-
-	return nil
-}
-
-func parseUserScramCredential(d *schema.ResourceData) (UserScramCredential, error) {
-	scram_mechanism_string := d.Get("scram_mechanism").(string)
-	mechanism := convertedScramMechanism(scram_mechanism_string)
-
-	password, err := getPasswordFromConfig(d)
-	if err != nil {
-		return UserScramCredential{}, err
-	}
-
-	return UserScramCredential{
-		Name:       d.Get("username").(string),
-		Mechanism:  mechanism,
-		Iterations: int32(d.Get("scram_iterations").(int)),
-		Password:   []byte(password),
-	}, nil
-}
-
-func convertedScramMechanism(scram_mechanism_string string) sarama.ScramMechanismType {
-	switch scram_mechanism_string {
+func convertedScramMechanism(s string) sarama.ScramMechanismType {
+	switch s {
 	case sarama.SCRAM_MECHANISM_SHA_256.String():
 		return sarama.SCRAM_MECHANISM_SHA_256
 	case sarama.SCRAM_MECHANISM_SHA_512.String():
@@ -366,4 +149,181 @@ func convertedScramMechanism(scram_mechanism_string string) sarama.ScramMechanis
 	default:
 		return sarama.SCRAM_MECHANISM_UNKNOWN
 	}
+}
+
+// credential builds the upsert from the plan; the write-only password exists
+// only in the configuration.
+func credential(ctx context.Context, plan scramModel, config tfsdk.Config, diags *diag.Diagnostics) UserScramCredential {
+	password := plan.Password.ValueString()
+	if password == "" {
+		var wo types.String
+		diags.Append(config.GetAttribute(ctx, path.Root("password_wo"), &wo)...)
+		password = wo.ValueString()
+	}
+	if password == "" {
+		diags.AddError("Missing password", "either 'password' or 'password_wo' must be provided with a non-empty value")
+	}
+	return UserScramCredential{
+		Name:       plan.Username.ValueString(),
+		Mechanism:  convertedScramMechanism(plan.ScramMechanism.ValueString()),
+		Iterations: int32(plan.ScramIterations.ValueInt64()),
+		Password:   []byte(password),
+	}
+}
+
+func scramIdentity(user, mechanism string) scramIdentityModel {
+	return scramIdentityModel{Username: types.StringValue(user), ScramMechanism: types.StringValue(mechanism)}
+}
+
+func (r *userScramCredentialResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
+	var plan scramModel
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	usc := credential(ctx, plan, req.Config, &resp.Diagnostics)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	if err := r.client.UpsertUserScramCredential(usc); err != nil {
+		resp.Diagnostics.AddError("Creating user scram credential "+usc.ID(), err.Error())
+		return
+	}
+	// AlterUserScramCredentials returns before every broker has applied the
+	// change; a Describe on a lagging broker would answer RESOURCE_NOT_FOUND.
+	err := waitFor(ctx, "user scram credential "+usc.ID()+" to be created", r.client.timeout(), time.Second, 2*time.Second, func() (bool, error) {
+		_, err := r.client.DescribeUserScramCredential(usc.Name, usc.Mechanism.String())
+		var missing UserScramCredentialMissingError
+		if errors.As(err, &missing) {
+			return false, nil
+		}
+		return err == nil, err
+	})
+	if err != nil {
+		resp.Diagnostics.AddError("Creating user scram credential "+usc.ID(), err.Error())
+		return
+	}
+	plan.ID = types.StringValue(usc.ID())
+	plan.PasswordWo = types.StringNull()
+	resp.Diagnostics.Append(resp.State.Set(ctx, plan)...)
+	resp.Diagnostics.Append(resp.Identity.Set(ctx, scramIdentity(usc.Name, usc.Mechanism.String()))...)
+}
+
+func (r *userScramCredentialResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
+	var state scramModel
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	found, err := r.client.DescribeUserScramCredential(state.Username.ValueString(), state.ScramMechanism.ValueString())
+	var missing UserScramCredentialMissingError
+	if errors.As(err, &missing) {
+		resp.State.RemoveResource(ctx)
+		return
+	}
+	if err != nil {
+		resp.Diagnostics.AddError("Reading user scram credential "+state.ID.ValueString(), err.Error())
+		return
+	}
+	state.Username = types.StringValue(found.Name)
+	state.ScramMechanism = types.StringValue(found.Mechanism.String())
+	state.ScramIterations = types.Int64Value(int64(found.Iterations))
+	state.ID = types.StringValue(found.ID())
+	resp.Diagnostics.Append(resp.State.Set(ctx, state)...)
+	resp.Diagnostics.Append(resp.Identity.Set(ctx, scramIdentity(found.Name, found.Mechanism.String()))...)
+}
+
+func (r *userScramCredentialResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
+	var plan, state scramModel
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	// password_wo itself never diffs (write-only); a change is signalled by
+	// password_wo_version.
+	if !plan.Password.Equal(state.Password) || !plan.PasswordWoVersion.Equal(state.PasswordWoVersion) ||
+		!plan.ScramIterations.Equal(state.ScramIterations) {
+		usc := credential(ctx, plan, req.Config, &resp.Diagnostics)
+		if resp.Diagnostics.HasError() {
+			return
+		}
+		if err := r.client.UpsertUserScramCredential(usc); err != nil {
+			resp.Diagnostics.AddError("Updating user scram credential "+usc.ID(), err.Error())
+			return
+		}
+	}
+	plan.ID = state.ID
+	plan.PasswordWo = types.StringNull()
+	resp.Diagnostics.Append(resp.State.Set(ctx, plan)...)
+}
+
+func (r *userScramCredentialResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
+	var state scramModel
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	usc := UserScramCredential{
+		Name:      state.Username.ValueString(),
+		Mechanism: convertedScramMechanism(state.ScramMechanism.ValueString()),
+	}
+	if err := r.client.DeleteUserScramCredential(usc); err != nil {
+		resp.Diagnostics.AddError("Deleting user scram credential "+usc.ID(), err.Error())
+		return
+	}
+	// Like create: wait until no broker still describes the credential.
+	err := waitFor(ctx, "user scram credential "+usc.ID()+" to be deleted", r.client.timeout(), time.Second, 2*time.Second, func() (bool, error) {
+		_, err := r.client.DescribeUserScramCredential(usc.Name, usc.Mechanism.String())
+		var missing UserScramCredentialMissingError
+		if errors.As(err, &missing) {
+			return true, nil
+		}
+		return false, err
+	})
+	if err != nil {
+		resp.Diagnostics.AddError("Deleting user scram credential "+usc.ID(), err.Error())
+	}
+}
+
+// ImportState: `username|scram_mechanism`, the legacy
+// `username|scram_mechanism|password`, or an identity. Kafka never returns
+// passwords, so the configuration must provide one (password_wo).
+func (r *userScramCredentialResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	var user, mechanism, password string
+	if req.ID != "" {
+		parts := strings.Split(req.ID, "|")
+		switch len(parts) {
+		case 2:
+			user, mechanism = parts[0], parts[1]
+		case 3:
+			user, mechanism, password = parts[0], parts[1], parts[2]
+		default:
+			resp.Diagnostics.AddError("Invalid import ID", fmt.Sprintf(
+				"expected format is username|scram_mechanism (for write-only passwords) or username|scram_mechanism|password (legacy) - got %v segments instead of 2 or 3", len(parts)))
+			return
+		}
+	} else {
+		var id scramIdentityModel
+		resp.Diagnostics.Append(req.Identity.Get(ctx, &id)...)
+		if resp.Diagnostics.HasError() {
+			return
+		}
+		user, mechanism = id.Username.ValueString(), id.ScramMechanism.ValueString()
+	}
+	m := scramModel{
+		ID:                types.StringValue(user + "|" + mechanism),
+		Username:          types.StringValue(user),
+		ScramMechanism:    types.StringValue(mechanism),
+		ScramIterations:   types.Int64Value(int64(defaultIterations)),
+		Password:          types.StringNull(),
+		PasswordWo:        types.StringNull(),
+		PasswordWoVersion: types.StringNull(),
+	}
+	if password != "" {
+		m.Password = types.StringValue(password)
+	}
+	log.Printf("[INFO] Importing user scram credential %s", m.ID.ValueString())
+	resp.Diagnostics.Append(resp.State.Set(ctx, m)...)
+	resp.Diagnostics.Append(resp.Identity.Set(ctx, scramIdentity(user, mechanism))...)
 }

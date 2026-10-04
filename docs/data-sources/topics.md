@@ -17,15 +17,15 @@ Provides a list of all Kafka topics in the cluster.
 
 ### Read-Only
 
-- `id` (String) The ID of this resource.
-- `list` (List of Object) A list containing all the topics. (see [below for nested schema](#nestedatt--list))
+- `id` (String) The number of topics.
+- `list` (Attributes List) A list containing all the topics. (see [below for nested schema](#nestedatt--list))
 
 <a id="nestedatt--list"></a>
 ### Nested Schema for `list`
 
 Read-Only:
 
-- `config` (Map of String)
-- `partitions` (Number)
-- `replication_factor` (Number)
-- `topic_name` (String)
+- `config` (Map of String) A map of string k/v attributes.
+- `partitions` (Number) Number of partitions.
+- `replication_factor` (Number) Number of replicas.
+- `topic_name` (String) The name of the topic.

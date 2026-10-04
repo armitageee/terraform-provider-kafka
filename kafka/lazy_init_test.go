@@ -18,13 +18,8 @@ func TestAcc_LazyInit(t *testing.T) {
 	topicName := fmt.Sprintf("syslog-%s", u)
 	bs := "localhost:90"
 
-	_, err = overrideProvider()
-	if err != nil {
-		t.Fatal(err)
-	}
-
 	r.Test(t, r.TestCase{
-		ProtoV5ProviderFactories: protoV5ProviderFactories(),
+		ProtoV6ProviderFactories: protoV6ProviderFactories(),
 		Steps: []r.TestStep{
 			{
 				Config:             cfg(t, bs, fmt.Sprintf(test_allResources_config, topicName, topicName)),

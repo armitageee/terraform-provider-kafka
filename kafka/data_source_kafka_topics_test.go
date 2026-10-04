@@ -18,7 +18,7 @@ func TestAcc_Topics(t *testing.T) {
 
 	bs := testBootstrapServers[0]
 	r.Test(t, r.TestCase{
-		ProtoV5ProviderFactories: protoV5ProviderFactories(),
+		ProtoV6ProviderFactories: protoV6ProviderFactories(),
 		Steps: []r.TestStep{
 			{
 				Config: cfg(t, bs, fmt.Sprintf(testDataSourceKafkaTopics, topicName)),

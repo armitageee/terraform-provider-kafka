@@ -19,7 +19,7 @@ func TestAcc_BasicQuota(t *testing.T) {
 	bs := testBootstrapServers[0]
 
 	r.Test(t, r.TestCase{
-		ProtoV5ProviderFactories: protoV5ProviderFactories(),
+		ProtoV6ProviderFactories: protoV6ProviderFactories(),
 		PreCheck:                 func() { testAccPreCheck(t) },
 		CheckDestroy:             testAccCheckQuotaDestroy,
 		Steps: []r.TestStep{
@@ -41,7 +41,7 @@ func TestAcc_QuotaConfigUpdate(t *testing.T) {
 	bs := testBootstrapServers[0]
 
 	r.Test(t, r.TestCase{
-		ProtoV5ProviderFactories: protoV5ProviderFactories(),
+		ProtoV6ProviderFactories: protoV6ProviderFactories(),
 		PreCheck:                 func() { testAccPreCheck(t) },
 		CheckDestroy:             testAccCheckQuotaDestroy,
 		Steps: []r.TestStep{
@@ -61,7 +61,7 @@ func TestAcc_DefaultEntityBasicQuota(t *testing.T) {
 	bs := testBootstrapServers[0]
 
 	r.Test(t, r.TestCase{
-		ProtoV5ProviderFactories: protoV5ProviderFactories(),
+		ProtoV6ProviderFactories: protoV6ProviderFactories(),
 		PreCheck:                 func() { testAccPreCheck(t) },
 		CheckDestroy:             testAccCheckQuotaDestroy,
 		Steps: []r.TestStep{
@@ -77,7 +77,7 @@ func TestAcc_DefaultEntityQuotaConfigUpdate(t *testing.T) {
 	bs := testBootstrapServers[0]
 
 	r.Test(t, r.TestCase{
-		ProtoV5ProviderFactories: protoV5ProviderFactories(),
+		ProtoV6ProviderFactories: protoV6ProviderFactories(),
 		PreCheck:                 func() { testAccPreCheck(t) },
 		CheckDestroy:             testAccCheckQuotaDestroy,
 		Steps: []r.TestStep{

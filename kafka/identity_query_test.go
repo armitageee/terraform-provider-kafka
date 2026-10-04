@@ -28,7 +28,7 @@ func TestAcc_TopicIdentityImportAndQuery(t *testing.T) {
 	identity := map[string]knownvalue.Check{"name": knownvalue.StringExact(name)}
 
 	r.Test(t, r.TestCase{
-		ProtoV5ProviderFactories: protoV5ProviderFactories(),
+		ProtoV6ProviderFactories: protoV6ProviderFactories(),
 		TerraformVersionChecks:   requireQuery,
 		PreCheck:                 func() { testAccPreCheck(t) },
 		CheckDestroy:             testAccCheckTopicDestroy,
@@ -84,7 +84,7 @@ func TestAcc_ACLIdentityImportAndQuery(t *testing.T) {
 	}
 
 	r.Test(t, r.TestCase{
-		ProtoV5ProviderFactories: protoV5ProviderFactories(),
+		ProtoV6ProviderFactories: protoV6ProviderFactories(),
 		TerraformVersionChecks:   requireQuery,
 		PreCheck:                 func() { testAccPreCheck(t) },
 		CheckDestroy:             func(*terraform.State) error { return testAccCheckAclDestroy(name) },
@@ -137,7 +137,7 @@ func TestAcc_QuotaIdentityImportAndQuery(t *testing.T) {
 	config := cfg(t, bs, fmt.Sprintf(testResourceQuota1, name, "4000000"))
 
 	r.Test(t, r.TestCase{
-		ProtoV5ProviderFactories: protoV5ProviderFactories(),
+		ProtoV6ProviderFactories: protoV6ProviderFactories(),
 		TerraformVersionChecks:   requireQuery,
 		PreCheck:                 func() { testAccPreCheck(t) },
 		CheckDestroy:             testAccCheckQuotaDestroy,
@@ -187,7 +187,7 @@ func TestAcc_DefaultQuotaImport(t *testing.T) {
 	config := cfg(t, bs, fmt.Sprintf(testResourceQuotaDefault, "4000000"))
 
 	r.Test(t, r.TestCase{
-		ProtoV5ProviderFactories: protoV5ProviderFactories(),
+		ProtoV6ProviderFactories: protoV6ProviderFactories(),
 		TerraformVersionChecks:   requireQuery,
 		PreCheck:                 func() { testAccPreCheck(t) },
 		CheckDestroy:             testAccCheckQuotaDestroy,
@@ -241,7 +241,7 @@ func TestAcc_UserScramCredentialIdentityImportAndQuery(t *testing.T) {
 	config := cfg(t, bs, fmt.Sprintf(testResourceUserScramCredential_ImportWriteOnly, name))
 
 	r.Test(t, r.TestCase{
-		ProtoV5ProviderFactories: protoV5ProviderFactories(),
+		ProtoV6ProviderFactories: protoV6ProviderFactories(),
 		TerraformVersionChecks:   requireQuery,
 		PreCheck:                 func() { testAccPreCheck(t) },
 		CheckDestroy:             testAccCheckUserScramCredentialDestroy,

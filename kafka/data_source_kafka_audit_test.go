@@ -71,7 +71,7 @@ func TestAcc_AuditDataSources(t *testing.T) {
 	}
 
 	r.Test(t, r.TestCase{
-		ProtoV5ProviderFactories: protoV5ProviderFactories(),
+		ProtoV6ProviderFactories: protoV6ProviderFactories(),
 		PreCheck:                 func() { testAccPreCheck(t) },
 		Steps: []r.TestStep{
 			{
