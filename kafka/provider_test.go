@@ -20,7 +20,9 @@ import (
 // tests continue state written by the published provider at that address.
 func init() {
 	if os.Getenv("TF_ACC_PROVIDER_NAMESPACE") == "" {
-		os.Setenv("TF_ACC_PROVIDER_NAMESPACE", "armitageee")
+		if err := os.Setenv("TF_ACC_PROVIDER_NAMESPACE", "armitageee"); err != nil {
+			panic(err)
+		}
 	}
 }
 
