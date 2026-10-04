@@ -252,6 +252,7 @@ func (p *KafkaProvider) Resources(context.Context) []func() resource.Resource {
 		newACLResource,
 		newQuotaResource,
 		newUserScramCredentialResource,
+		newBrokerConfigResource,
 	}
 }
 
@@ -263,6 +264,7 @@ func (p *KafkaProvider) DataSources(context.Context) []func() datasource.DataSou
 		newACLsDataSource,
 		newQuotasDataSource,
 		newUserScramCredentialsDataSource,
+		newBrokerConfigDataSource,
 	}
 }
 
