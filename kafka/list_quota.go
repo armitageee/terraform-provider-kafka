@@ -15,10 +15,13 @@ import (
 
 // quotaListResource implements `list "kafka_quota"` for `terraform query`.
 type quotaListResource struct {
-	sdk *sdkSchemas
+	client *LazyClient
 }
 
-var _ list.ListResourceWithRawV5Schemas = (*quotaListResource)(nil)
+var (
+	_ list.ListResource              = (*quotaListResource)(nil)
+	_ list.ListResourceWithConfigure = (*quotaListResource)(nil)
+)
 
 type quotaListConfig struct {
 	EntityType       types.String `tfsdk:"entity_type"`
@@ -46,13 +49,8 @@ func (r *quotaListResource) ListResourceConfigSchema(_ context.Context, _ list.L
 	}
 }
 
-func (r *quotaListResource) RawV5Schemas(ctx context.Context, _ list.RawV5SchemaRequest, resp *list.RawV5SchemaResponse) {
-	rs, is, err := r.sdk.resource(ctx, "kafka_quota")
-	if err != nil {
-		return
-	}
-	resp.ProtoV5Schema = rs
-	resp.ProtoV5IdentitySchema = is
+func (r *quotaListResource) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
+	r.client = clientFrom(req.ProviderData, &resp.Diagnostics)
 }
 
 func (r *quotaListResource) List(ctx context.Context, req list.ListRequest, stream *list.ListResultsStream) {
@@ -61,7 +59,7 @@ func (r *quotaListResource) List(ctx context.Context, req list.ListRequest, stre
 		stream.Results = list.ListResultsStreamDiagnostics(diags)
 		return
 	}
-	client := r.sdk.client()
+	client := r.client
 	if client == nil {
 		stream.Results = list.ListResultsStreamDiagnostics(listError("Provider not configured", "The kafka provider block was not configured before listing."))
 		return
@@ -89,7 +87,10 @@ func (r *quotaListResource) List(ctx context.Context, req list.ListRequest, stre
 				}
 				result.Diagnostics.Append(result.Resource.SetAttribute(ctx, path.Root("id"), q.ID())...)
 				result.Diagnostics.Append(result.Resource.SetAttribute(ctx, path.Root("entity_type"), q.EntityType)...)
-				result.Diagnostics.Append(result.Resource.SetAttribute(ctx, path.Root("entity_name"), q.EntityName)...)
+				// Default quota: entity_name unset in the resource (identity keeps "").
+				if q.EntityName != "" {
+					result.Diagnostics.Append(result.Resource.SetAttribute(ctx, path.Root("entity_name"), q.EntityName)...)
+				}
 				result.Diagnostics.Append(result.Resource.SetAttribute(ctx, path.Root("config"), config)...)
 			}
 			if !push(result) {

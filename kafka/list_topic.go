@@ -17,12 +17,14 @@ import (
 // topicListResource implements `list "kafka_topic"` for `terraform query`:
 // it finds existing topics and returns their identity (and, on request, the
 // full resource) so Terraform can generate import blocks and configuration.
-// The managed resource itself is SDKv2; its schemas come in via RawV5Schemas.
 type topicListResource struct {
-	sdk *sdkSchemas
+	client *LazyClient
 }
 
-var _ list.ListResourceWithRawV5Schemas = (*topicListResource)(nil)
+var (
+	_ list.ListResource              = (*topicListResource)(nil)
+	_ list.ListResourceWithConfigure = (*topicListResource)(nil)
+)
 
 type topicListConfig struct {
 	NamePrefix      types.String `tfsdk:"name_prefix"`
@@ -54,15 +56,8 @@ func (r *topicListResource) ListResourceConfigSchema(_ context.Context, _ list.L
 	}
 }
 
-func (r *topicListResource) RawV5Schemas(ctx context.Context, _ list.RawV5SchemaRequest, resp *list.RawV5SchemaResponse) {
-	rs, is, err := r.sdk.resource(ctx, "kafka_topic")
-	if err != nil {
-		// No diagnostics on this response: leave schemas empty, the framework
-		// then reports the missing schema itself.
-		return
-	}
-	resp.ProtoV5Schema = rs
-	resp.ProtoV5IdentitySchema = is
+func (r *topicListResource) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
+	r.client = clientFrom(req.ProviderData, &resp.Diagnostics)
 }
 
 func (r *topicListResource) List(ctx context.Context, req list.ListRequest, stream *list.ListResultsStream) {
@@ -72,7 +67,7 @@ func (r *topicListResource) List(ctx context.Context, req list.ListRequest, stre
 		return
 	}
 
-	client := r.sdk.client()
+	client := r.client
 	if client == nil {
 		diags := listError("Provider not configured", "The kafka provider block was not configured before listing.")
 		stream.Results = list.ListResultsStreamDiagnostics(diags)

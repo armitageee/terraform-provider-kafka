@@ -6,8 +6,11 @@ import (
 	"log"
 
 	"github.com/Mongey/terraform-provider-kafka/kafka"
-	"github.com/hashicorp/terraform-plugin-go/tfprotov5/tf5server"
+	"github.com/hashicorp/terraform-plugin-framework/providerserver"
 )
+
+// version is set by goreleaser (-X main.version=...).
+var version = "dev"
 
 // Run "go generate" to format example terraform files and generate the docs for the registry/website
 
@@ -26,17 +29,13 @@ func main() {
 	flag.BoolVar(&debugMode, "debug", false, "set to true to run the provider with support for debuggers like delve")
 	flag.Parse()
 
-	ctx := context.Background()
-	server, err := kafka.MuxServer(ctx)
+	// Protocol 6 (Terraform >= 1.0, every OpenTofu): nested attributes.
+	err := providerserver.Serve(context.Background(), kafka.New(version), providerserver.ServeOpts{
+		Address:         "registry.terraform.io/armitageee/kafka",
+		Debug:           debugMode,
+		ProtocolVersion: 6,
+	})
 	if err != nil {
-		log.Fatal(err)
-	}
-
-	var serveOpts []tf5server.ServeOpt
-	if debugMode {
-		serveOpts = append(serveOpts, tf5server.WithManagedDebug())
-	}
-	if err := tf5server.Serve("registry.terraform.io/armitageee/kafka", server, serveOpts...); err != nil {
 		log.Fatal(err)
 	}
 }

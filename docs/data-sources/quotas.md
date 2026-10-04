@@ -36,16 +36,16 @@ output "producer_byte_rates" {
 
 ### Read-Only
 
-- `id` (String) The ID of this resource.
-- `quotas` (List of Object) Matching quotas, sorted by ID. (see [below for nested schema](#nestedatt--quotas))
+- `id` (String) Derived from the filters.
+- `quotas` (Attributes List) Matching quotas, sorted by ID. (see [below for nested schema](#nestedatt--quotas))
 
 <a id="nestedatt--quotas"></a>
 ### Nested Schema for `quotas`
 
 Read-Only:
 
-- `config` (Map of Number)
-- `default` (Boolean)
-- `entity_name` (String)
-- `entity_type` (String)
-- `id` (String)
+- `config` (Map of Number) Quota values, e.g. `producer_byte_rate`.
+- `default` (Boolean) Whether this is the default quota of the entity type.
+- `entity_name` (String) Entity name; empty for a default quota.
+- `entity_type` (String) `user`, `client-id` or `ip`.
+- `id` (String) The `kafka_quota` resource ID, usable with `terraform import`.

@@ -11,6 +11,8 @@ description: |-
 
 OpenTofu: use the full address `registry.terraform.io/armitageee/kafka`.
 
+Since 0.18.0 the provider is built on terraform-plugin-framework and needs **Terraform 1.0+** or any OpenTofu (plugin protocol 6). Existing state works unchanged.
+
 The Kafka provider is used to interact with [Apache Kafka](https://kafka.apache.org/) clusters. The provider allows you to manage Kafka topics, ACLs, quotas, and SCRAM credentials. It supports various authentication methods including TLS, SASL/PLAIN, SASL/SCRAM, AWS IAM, and OAuth.
 
 ## Documentation
@@ -156,11 +158,11 @@ provider "kafka" {
 - `ca_cert_file` (String, Deprecated) Path to a CA certificate file to validate the server's certificate.
 - `client_cert` (String) The client certificate.
 - `client_cert_file` (String, Deprecated) Path to a file containing the client certificate.
-- `client_key` (String) The private key that the certificate was issued for.
+- `client_key` (String, Sensitive) The private key that the certificate was issued for.
 - `client_key_file` (String, Deprecated) Path to a file containing the private key that the certificate was issued for.
-- `client_key_passphrase` (String) The passphrase for the private key that the certificate was issued for.
+- `client_key_passphrase` (String, Sensitive) The passphrase for the private key that the certificate was issued for.
 - `kafka_version` (String) The version of Kafka protocol to use in `$MAJOR.$MINOR.$PATCH` format. Some features may not be available on older versions. Default is 2.7.0.
-- `sasl_aws_access_key` (String) The AWS access key.
+- `sasl_aws_access_key` (String, Sensitive) The AWS access key.
 - `sasl_aws_container_authorization_token_file` (String) Path to a file containing the AWS pod identity authorization token
 - `sasl_aws_container_credentials_full_uri` (String) URI to retrieve AWS credentials from
 - `sasl_aws_creds_debug` (Boolean) Set this to true to turn AWS credentials debug.
@@ -168,9 +170,9 @@ provider "kafka" {
 - `sasl_aws_profile` (String) AWS profile name to use
 - `sasl_aws_region` (String) AWS region where MSK is deployed.
 - `sasl_aws_role_arn` (String) Arn of an AWS IAM role to assume
-- `sasl_aws_secret_key` (String) The AWS secret key.
+- `sasl_aws_secret_key` (String, Sensitive) The AWS secret key.
 - `sasl_aws_shared_config_files` (List of String) List of paths to AWS shared config files.
-- `sasl_aws_token` (String) The AWS session token. Only required if you are using temporary security credentials.
+- `sasl_aws_token` (String, Sensitive) The AWS session token. Only required if you are using temporary security credentials.
 - `sasl_gssapi_ccache_path` (String) Credentials cache used when neither keytab nor password is set (e.g. after `kinit`). Defaults to `$KRB5CCNAME`, then `/tmp/krb5cc_<uid>`. Only `FILE:` caches are supported.
 - `sasl_gssapi_disable_pafxfast` (Boolean) Disable PA-FX-FAST. Required for Active Directory and most KDCs that do not support it.
 - `sasl_gssapi_kerberos_config_path` (String) Path to krb5.conf. Defaults to `$KRB5_CONFIG`, then `/etc/krb5.conf`.
@@ -182,7 +184,7 @@ provider "kafka" {
 - `sasl_gssapi_username` (String) Principal without the realm. Overrides the one derived from `sasl_gssapi_principal`.
 - `sasl_mechanism` (String) SASL mechanism, can be plain, scram-sha512, scram-sha256, aws-iam, oauthbearer, gssapi
 - `sasl_oauth_scopes` (List of String) OAuth scopes to request when using the oauthbearer mechanism
-- `sasl_password` (String) Password for SASL authentication.
+- `sasl_password` (String, Sensitive) Password for SASL authentication.
 - `sasl_token_url` (String) The url to retrieve oauth2 tokens from, when using sasl mechanism oauthbearer
 - `sasl_username` (String) Username for SASL authentication.
 - `skip_tls_verify` (Boolean) Set this to true only if the target Kafka server is an insecure development instance.

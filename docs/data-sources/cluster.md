@@ -33,17 +33,17 @@ check "expected_cluster" {
 
 ### Read-Only
 
-- `brokers` (List of Object) Brokers as advertised to clients, sorted by ID. (see [below for nested schema](#nestedatt--brokers))
+- `brokers` (Attributes List) Brokers as advertised to clients, sorted by ID. (see [below for nested schema](#nestedatt--brokers))
 - `cluster_id` (String) The cluster ID.
 - `controller_id` (Number) Node ID of the active controller.
-- `id` (String) The ID of this resource.
+- `id` (String) The cluster ID.
 
 <a id="nestedatt--brokers"></a>
 ### Nested Schema for `brokers`
 
 Read-Only:
 
-- `host` (String)
-- `id` (Number)
-- `port` (Number)
-- `rack` (String)
+- `host` (String) Advertised host.
+- `id` (Number) Broker node ID.
+- `port` (Number) Advertised port.
+- `rack` (String) Rack (`broker.rack`), empty if not set.

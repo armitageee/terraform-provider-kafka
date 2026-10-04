@@ -14,13 +14,15 @@ import (
 )
 
 // aclListResource implements `list "kafka_acl"` for `terraform query`. Like
-// the topic list, the managed resource is SDKv2 and its schemas come in via
-// RawV5Schemas.
+// the topic list, it returns identity and, on request, the resource.
 type aclListResource struct {
-	sdk *sdkSchemas
+	client *LazyClient
 }
 
-var _ list.ListResourceWithRawV5Schemas = (*aclListResource)(nil)
+var (
+	_ list.ListResource              = (*aclListResource)(nil)
+	_ list.ListResourceWithConfigure = (*aclListResource)(nil)
+)
 
 type aclListConfig struct {
 	Principal          types.String `tfsdk:"acl_principal"`
@@ -56,13 +58,8 @@ func (r *aclListResource) ListResourceConfigSchema(_ context.Context, _ list.Lis
 	}
 }
 
-func (r *aclListResource) RawV5Schemas(ctx context.Context, _ list.RawV5SchemaRequest, resp *list.RawV5SchemaResponse) {
-	rs, is, err := r.sdk.resource(ctx, "kafka_acl")
-	if err != nil {
-		return
-	}
-	resp.ProtoV5Schema = rs
-	resp.ProtoV5IdentitySchema = is
+func (r *aclListResource) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
+	r.client = clientFrom(req.ProviderData, &resp.Diagnostics)
 }
 
 func (r *aclListResource) List(ctx context.Context, req list.ListRequest, stream *list.ListResultsStream) {
@@ -72,7 +69,7 @@ func (r *aclListResource) List(ctx context.Context, req list.ListRequest, stream
 		return
 	}
 
-	client := r.sdk.client()
+	client := r.client
 	if client == nil {
 		stream.Results = list.ListResultsStreamDiagnostics(listError("Provider not configured", "The kafka provider block was not configured before listing."))
 		return

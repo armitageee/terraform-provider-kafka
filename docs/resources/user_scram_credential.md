@@ -110,7 +110,7 @@ terraform import kafka_user_scram_credential.example 'my-user|SCRAM-SHA-256|my-p
 
 ### Read-Only
 
-- `id` (String) The ID of this resource.
+- `id` (String) `username|scram_mechanism`.
 
 ## SCRAM Mechanisms
 

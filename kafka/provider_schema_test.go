@@ -5,90 +5,65 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hashicorp/terraform-plugin-go/tfprotov5"
+	"github.com/hashicorp/terraform-plugin-go/tfprotov6"
 )
 
-// The mux refuses to start when the SDKv2 and framework provider schemas
-// differ; the framework one is generated from SDKv2, so this guards the
-// converter against any future provider attribute.
-func TestMuxServerSchemas(t *testing.T) {
+// The provider serves every resource, data source, identity and list
+// resource from terraform-plugin-framework over protocol 6.
+func TestProviderSchemas(t *testing.T) {
 	ctx := context.Background()
-	newServer, err := MuxServer(ctx)
+	srv, err := protoV6ProviderFactories()["kafka"]()
 	if err != nil {
-		t.Fatalf("MuxServer: %v", err)
+		t.Fatal(err)
 	}
-	srv := newServer()
 
-	schemas, err := srv.GetProviderSchema(ctx, &tfprotov5.GetProviderSchemaRequest{})
+	schemas, err := srv.GetProviderSchema(ctx, &tfprotov6.GetProviderSchemaRequest{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, d := range schemas.Diagnostics {
 		t.Errorf("GetProviderSchema diagnostic: %s: %s", d.Summary, d.Detail)
 	}
-	if _, ok := schemas.ResourceSchemas["kafka_topic"]; !ok {
-		t.Error("kafka_topic resource schema missing (SDKv2 side)")
-	}
-	ls, ok := schemas.ListResourceSchemas["kafka_topic"]
-	if !ok {
-		t.Fatal("kafka_topic list resource schema missing (framework side)")
-	}
-	got := map[string]bool{}
-	for _, a := range ls.Block.Attributes {
-		got[a.Name] = true
-	}
-	for _, want := range []string{"name_prefix", "name_regex", "include_internal"} {
-		if !got[want] {
-			t.Errorf("list schema lacks %q", want)
+	for _, r := range []string{"kafka_topic", "kafka_acl", "kafka_quota", "kafka_user_scram_credential"} {
+		if _, ok := schemas.ResourceSchemas[r]; !ok {
+			t.Errorf("resource %s missing", r)
+		}
+		if _, ok := schemas.ListResourceSchemas[r]; !ok {
+			t.Errorf("list resource %s missing", r)
 		}
 	}
-
-	al, ok := schemas.ListResourceSchemas["kafka_acl"]
-	if !ok {
-		t.Fatal("kafka_acl list resource schema missing (framework side)")
+	for _, d := range []string{"kafka_topic", "kafka_topics", "kafka_cluster", "kafka_acls", "kafka_quotas", "kafka_user_scram_credentials"} {
+		if _, ok := schemas.DataSourceSchemas[d]; !ok {
+			t.Errorf("data source %s missing", d)
+		}
 	}
-	if len(al.Block.Attributes) != 3 {
-		t.Errorf("kafka_acl list schema has %d attributes, want 3", len(al.Block.Attributes))
+	if v := schemas.ResourceSchemas["kafka_acl"].Version; v != 1 {
+		t.Errorf("kafka_acl schema version = %d, want 1 (state upgrade from 0)", v)
+	}
+	if n := len(schemas.Provider.Block.Attributes); n != 37 {
+		t.Errorf("provider has %d attributes, want 37", n)
 	}
 
-	ids, err := srv.GetResourceIdentitySchemas(ctx, &tfprotov5.GetResourceIdentitySchemasRequest{})
+	ids, err := srv.GetResourceIdentitySchemas(ctx, &tfprotov6.GetResourceIdentitySchemasRequest{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	id, ok := ids.IdentitySchemas["kafka_topic"]
-	if !ok || len(id.IdentityAttributes) != 1 || id.IdentityAttributes[0].Name != "name" || !id.IdentityAttributes[0].RequiredForImport {
-		t.Fatalf("kafka_topic identity schema = %+v", id)
-	}
-
-	aid, ok := ids.IdentitySchemas["kafka_acl"]
-	if !ok || len(aid.IdentityAttributes) != len(aclIdentityAttributes) {
-		t.Fatalf("kafka_acl identity schema = %+v", aid)
-	}
-	for _, a := range aid.IdentityAttributes {
-		if !a.RequiredForImport {
-			t.Errorf("kafka_acl identity %q is not RequiredForImport", a.Name)
-		}
-	}
-
-	for typ, want := range map[string]int{"kafka_quota": 2, "kafka_user_scram_credential": 2} {
+	for typ, want := range map[string]int{"kafka_topic": 1, "kafka_acl": 7, "kafka_quota": 2, "kafka_user_scram_credential": 2} {
 		is, ok := ids.IdentitySchemas[typ]
 		if !ok || len(is.IdentityAttributes) != want {
 			t.Errorf("%s identity schema = %+v, want %d attributes", typ, is, want)
 		}
 	}
+}
 
-	meta, err := srv.GetMetadata(ctx, &tfprotov5.GetMetadataRequest{})
-	if err != nil {
-		t.Fatal(err)
+func TestTopicEqualNegativeReplicationFactor(t *testing.T) {
+	want := Topic{Name: "t", Partitions: 3, ReplicationFactor: -1}
+	if !want.Equal(Topic{Name: "t", Partitions: 3, ReplicationFactor: 3}) {
+		t.Error("-1 must accept any replication factor Kafka reports")
 	}
-	advertised := map[string]bool{}
-	for _, l := range meta.ListResources {
-		advertised[l.TypeName] = true
-	}
-	for _, want := range []string{"kafka_topic", "kafka_acl", "kafka_quota", "kafka_user_scram_credential"} {
-		if !advertised[want] {
-			t.Errorf("GetMetadata does not advertise the %s list resource", want)
-		}
+	want.ReplicationFactor = 2
+	if want.Equal(Topic{Name: "t", Partitions: 3, ReplicationFactor: 3}) {
+		t.Error("2 != 3")
 	}
 }
 
@@ -198,30 +173,21 @@ func TestFilterQuotas(t *testing.T) {
 }
 
 func TestImportQuotaFormats(t *testing.T) {
-	cases := map[string]struct{ typ, name, id string }{
-		"orders-app|client-id": {"client-id", "orders-app", "orders-app|client-id"},
-		"entity-default|user":  {"user", "", "entity-default|user"},
-		"client-id:orders-app": {"client-id", "orders-app", "orders-app|client-id"},
-		"user:":                {"user", "", "entity-default|user"},
-		"ip:10.0.0.1":          {"ip", "10.0.0.1", "10.0.0.1|ip"},
+	cases := map[string]struct{ typ, name string }{
+		"orders-app|client-id": {"client-id", "orders-app"},
+		"entity-default|user":  {"user", ""},
+		"client-id:orders-app": {"client-id", "orders-app"},
+		"user:":                {"user", ""},
+		"ip:10.0.0.1":          {"ip", "10.0.0.1"},
 	}
 	for in, want := range cases {
-		d := kafkaQuotaResource().TestResourceData()
-		d.SetId(in)
-		out, err := importQuota(context.Background(), d, nil)
-		if err != nil {
-			t.Errorf("%q: %v", in, err)
-			continue
-		}
-		got := out[0]
-		if got.Get("entity_type") != want.typ || got.Get("entity_name") != want.name || got.Id() != want.id {
-			t.Errorf("%q: got type=%v name=%v id=%v", in, got.Get("entity_type"), got.Get("entity_name"), got.Id())
+		typ, name, err := parseQuotaImportID(in)
+		if err != nil || typ != want.typ || name != want.name {
+			t.Errorf("%q: got %q %q %v", in, typ, name, err)
 		}
 	}
 	for _, bad := range []string{"just-a-name", "group:x", "a|b|c"} {
-		d := kafkaQuotaResource().TestResourceData()
-		d.SetId(bad)
-		if _, err := importQuota(context.Background(), d, nil); err == nil {
+		if _, _, err := parseQuotaImportID(bad); err == nil {
 			t.Errorf("%q: expected an error", bad)
 		}
 	}

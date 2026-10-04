@@ -9,7 +9,6 @@ import (
 	"time"
 
 	uuid "github.com/hashicorp/go-uuid"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	r "github.com/hashicorp/terraform-plugin-testing/helper/resource"
 	"github.com/hashicorp/terraform-plugin-testing/terraform"
 
@@ -25,7 +24,7 @@ func TestAcc_BasicTopic(t *testing.T) {
 	topicName := fmt.Sprintf("syslog-%s", u)
 	bs := testBootstrapServers[0]
 	r.Test(t, r.TestCase{
-		ProtoV5ProviderFactories: protoV5ProviderFactories(),
+		ProtoV6ProviderFactories: protoV6ProviderFactories(),
 		PreCheck:                 func() { testAccPreCheck(t) },
 		CheckDestroy:             testAccCheckTopicDestroy,
 		Steps: []r.TestStep{
@@ -47,7 +46,7 @@ func TestAcc_TopicConfigUpdate(t *testing.T) {
 	bs := testBootstrapServers[0]
 
 	r.Test(t, r.TestCase{
-		ProtoV5ProviderFactories: protoV5ProviderFactories(),
+		ProtoV6ProviderFactories: protoV6ProviderFactories(),
 		PreCheck:                 func() { testAccPreCheck(t) },
 		CheckDestroy:             testAccCheckTopicDestroy,
 		Steps: []r.TestStep{
@@ -100,7 +99,7 @@ func TestAcc_TopicUpdatePartitions(t *testing.T) {
 	bs := testBootstrapServers[0]
 
 	r.Test(t, r.TestCase{
-		ProtoV5ProviderFactories: protoV5ProviderFactories(),
+		ProtoV6ProviderFactories: protoV6ProviderFactories(),
 		PreCheck:                 func() { testAccPreCheck(t) },
 		CheckDestroy:             testAccCheckTopicDestroy,
 		Steps: []r.TestStep{
@@ -129,7 +128,7 @@ func TestAcc_TopicNegRepFactor(t *testing.T) {
 	bs := testBootstrapServers[0]
 
 	r.Test(t, r.TestCase{
-		ProtoV5ProviderFactories: protoV5ProviderFactories(),
+		ProtoV6ProviderFactories: protoV6ProviderFactories(),
 		PreCheck:                 func() { testAccPreCheck(t) },
 		CheckDestroy:             testAccCheckTopicDestroy,
 		Steps: []r.TestStep{
@@ -174,7 +173,7 @@ func TestAcc_TopicAlterReplicationFactor(t *testing.T) {
 	}
 
 	r.Test(t, r.TestCase{
-		ProtoV5ProviderFactories: protoV5ProviderFactories(),
+		ProtoV6ProviderFactories: protoV6ProviderFactories(),
 		PreCheck:                 func() { testAccPreCheck(t) },
 		CheckDestroy:             testAccCheckTopicDestroy,
 		Steps: []r.TestStep{
@@ -204,44 +203,6 @@ func TestAcc_TopicAlterReplicationFactor(t *testing.T) {
 			},
 		},
 	})
-}
-
-func Test_ReplicationFactorDiffSuppressFunc(t *testing.T) {
-	t.Parallel()
-	cases := []struct {
-		oldValue string
-		newValue string
-		expected bool
-	}{
-		{
-			oldValue: "3",
-			newValue: "-1",
-			expected: true,
-		},
-		{
-			oldValue: "3",
-			newValue: "6",
-			expected: false,
-		},
-		{
-			oldValue: "3",
-			newValue: "3",
-			expected: false,
-		},
-		{
-			oldValue: "3",
-			newValue: "impossible",
-			expected: false,
-		},
-	}
-
-	for i, tt := range cases {
-		t.Run(strconv.Itoa(i), func(t *testing.T) {
-			if tt.expected != replicationFactorDiffSuppressFunc("xxx", tt.oldValue, tt.newValue, &schema.ResourceData{}) {
-				t.FailNow()
-			}
-		})
-	}
 }
 
 func testResourceTopic_noConfigCheck(s *terraform.State) error {

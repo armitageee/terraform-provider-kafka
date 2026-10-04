@@ -2,201 +2,216 @@ package kafka
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"strings"
 	"time"
 
-	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/retry"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/validation"
+	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
+	"github.com/hashicorp/terraform-plugin-framework/diag"
+	"github.com/hashicorp/terraform-plugin-framework/resource"
+	"github.com/hashicorp/terraform-plugin-framework/resource/identityschema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/mapplanmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
+	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
-func kafkaQuotaResource() *schema.Resource {
-	//lintignore:R011
-	return &schema.Resource{
-		CreateContext: quotaCreate,
-		ReadContext:   quotaRead,
-		DeleteContext: quotaDelete,
-		Importer: &schema.ResourceImporter{
-			StateContext: importQuota,
-		},
-		// Identity: entity type and name (empty name = the default quota of
-		// that type). Used by `terraform query` and import blocks.
-		Identity: &schema.ResourceIdentity{
-			SchemaFunc: func() map[string]*schema.Schema {
-				return map[string]*schema.Schema{
-					"entity_type": {Type: schema.TypeString, RequiredForImport: true, Description: "client-id, user or ip."},
-					"entity_name": {Type: schema.TypeString, OptionalForImport: true, Description: "Empty or omitted for the default quota of the type."},
-				}
+type quotaResource struct {
+	client *LazyClient
+}
+
+var (
+	_ resource.ResourceWithConfigure   = (*quotaResource)(nil)
+	_ resource.ResourceWithImportState = (*quotaResource)(nil)
+	_ resource.ResourceWithIdentity    = (*quotaResource)(nil)
+)
+
+func newQuotaResource() resource.Resource { return &quotaResource{} }
+
+type quotaModel struct {
+	ID         types.String `tfsdk:"id"`
+	EntityName types.String `tfsdk:"entity_name"`
+	EntityType types.String `tfsdk:"entity_type"`
+	Config     types.Map    `tfsdk:"config"`
+}
+
+// Identity entity_name is "" for a default quota (as written since 0.17).
+type quotaIdentityModel struct {
+	EntityType types.String `tfsdk:"entity_type"`
+	EntityName types.String `tfsdk:"entity_name"`
+}
+
+func (r *quotaResource) Metadata(_ context.Context, _ resource.MetadataRequest, resp *resource.MetadataResponse) {
+	resp.TypeName = "kafka_quota"
+}
+
+func (r *quotaResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
+	resp.Schema = schema.Schema{
+		Description: "A resource for managing Kafka quotas to control resource usage by clients, users, or IP addresses.",
+		Attributes: map[string]schema.Attribute{
+			"id": schema.StringAttribute{
+				Computed:      true,
+				Description:   "`entity_name|entity_type`, `entity-default|entity_type` for a default quota.",
+				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
+			},
+			"entity_name": schema.StringAttribute{
+				Optional:      true,
+				Description:   "The name of the entity (if entity_name is not provided, it will create entity-default Kafka quota)",
+				PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()},
+			},
+			"entity_type": schema.StringAttribute{
+				Required:      true,
+				Description:   "The type of the entity (client-id, user, ip)",
+				Validators:    []validator.String{stringvalidator.OneOf("client-id", "user", "ip")},
+				PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()},
+			},
+			"config": schema.MapAttribute{
+				Optional:      true,
+				ElementType:   types.Float64Type,
+				Description:   "A map of string k/v properties.",
+				PlanModifiers: []planmodifier.Map{mapplanmodifier.RequiresReplace()},
 			},
 		},
-		Schema: map[string]*schema.Schema{
-			"entity_name": {
-				Type:        schema.TypeString,
-				Optional:    true,
-				ForceNew:    true,
-				Description: "The name of the entity (if entity_name is not provided, it will create entity-default Kafka quota)",
-			},
-			"entity_type": {
-				Type:             schema.TypeString,
-				Required:         true,
-				ForceNew:         true,
-				ValidateDiagFunc: validateDiagFunc(validation.StringInSlice([]string{"client-id", "user", "ip"}, false)),
-				Description:      "The type of the entity (client-id, user, ip)",
-			},
-			"config": {
-				Type:        schema.TypeMap,
-				Optional:    true,
-				ForceNew:    true,
-				Description: "A map of string k/v properties.",
-				Elem:        schema.TypeFloat,
-			},
+	}
+}
+
+func (r *quotaResource) IdentitySchema(_ context.Context, _ resource.IdentitySchemaRequest, resp *resource.IdentitySchemaResponse) {
+	resp.IdentitySchema = identityschema.Schema{
+		Attributes: map[string]identityschema.Attribute{
+			"entity_type": identityschema.StringAttribute{RequiredForImport: true, Description: "client-id, user or ip."},
+			"entity_name": identityschema.StringAttribute{OptionalForImport: true, Description: "Empty or omitted for the default quota of the type."},
 		},
 	}
 }
 
-func quotaCreate(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
-	c := meta.(*LazyClient)
-	quota := newQuota(d, false)
-	log.Printf("[INFO] Creating Quota %s", quota)
-
-	err := c.AlterQuota(quota)
-	if err != nil {
-		log.Println("[ERROR] Failed to create Quota")
-		return diag.FromErr(err)
-	}
-
-	stateConf := &retry.StateChangeConf{
-		Pending:      []string{"Pending"},
-		Target:       []string{"Created"},
-		Refresh:      quotaCreatedFunc(c, quota),
-		Timeout:      time.Duration(c.Config.Timeout) * time.Second,
-		Delay:        1 * time.Second,
-		PollInterval: 2 * time.Second,
-	}
-
-	if _, err := stateConf.WaitForStateContext(ctx); err != nil {
-		return diag.FromErr(fmt.Errorf("error waiting for quota (%s) to be created: %s", quota.ID(), err))
-	}
-
-	d.SetId(quota.ID())
-
-	return diag.FromErr(setQuotaIdentity(d, quota.EntityType, quota.EntityName))
+func (r *quotaResource) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
+	r.client = clientFrom(req.ProviderData, &resp.Diagnostics)
 }
 
-func quotaCreatedFunc(client *LazyClient, q Quota) retry.StateRefreshFunc {
-	return func() (result interface{}, s string, err error) {
-		fq, err := client.DescribeQuota(q.EntityType, q.EntityName)
-		switch e := err.(type) {
-		case QuotaMissingError:
-			return fq, "Pending", nil
-		case nil:
-			return fq, "Created", nil
-		default:
-			return fq, "Error", e
+func quotaFromModel(ctx context.Context, m quotaModel, remove bool, diags *diag.Diagnostics) Quota {
+	q := Quota{EntityType: m.EntityType.ValueString(), EntityName: m.EntityName.ValueString()}
+	for k, v := range float64Map(ctx, m.Config, diags) {
+		q.Ops = append(q.Ops, QuotaOp{Key: k, Value: v, Remove: remove})
+	}
+	return q
+}
+
+// waitQuota waits until the quota is (present=true) or is not visible.
+func (r *quotaResource) waitQuota(ctx context.Context, q Quota, present bool) error {
+	what := "quota " + q.ID()
+	if present {
+		what += " to be created"
+	} else {
+		what += " to be deleted"
+	}
+	return waitFor(ctx, what, r.client.timeout(), time.Second, 2*time.Second, func() (bool, error) {
+		_, err := r.client.DescribeQuota(q.EntityType, q.EntityName)
+		var missing QuotaMissingError
+		if errors.As(err, &missing) {
+			return !present, nil
 		}
-	}
-}
-
-func quotaDelete(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
-	c := meta.(*LazyClient)
-	quota := newQuota(d, true)
-	log.Printf("[INFO] Deleting quota %s", quota)
-
-	err := c.AlterQuota(quota)
-	if err != nil {
-		log.Println("[ERROR] Failed to delete Quota")
-		return diag.FromErr(err)
-	}
-
-	// Like create: AlterClientQuotas returns before every broker has applied
-	// the change, and a Describe on a lagging broker still sees the quota.
-	stateConf := &retry.StateChangeConf{
-		Pending:      []string{"Present"},
-		Target:       []string{"Deleted"},
-		Refresh:      quotaDeletedFunc(c, quota),
-		Timeout:      time.Duration(c.Config.Timeout) * time.Second,
-		Delay:        1 * time.Second,
-		PollInterval: 2 * time.Second,
-	}
-	if _, err := stateConf.WaitForStateContext(ctx); err != nil {
-		return diag.FromErr(fmt.Errorf("error waiting for quota (%s) to be deleted: %w", quota.ID(), err))
-	}
-
-	return nil
-}
-
-func quotaDeletedFunc(client *LazyClient, q Quota) retry.StateRefreshFunc {
-	return func() (interface{}, string, error) {
-		_, err := client.DescribeQuota(q.EntityType, q.EntityName)
-		switch err.(type) {
-		case QuotaMissingError:
-			return q, "Deleted", nil
-		case nil:
-			return q, "Present", nil
-		default:
-			return nil, "Error", err
-		}
-	}
-}
-
-func quotaRead(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
-	log.Println("[INFO] Reading Quota")
-	c := meta.(*LazyClient)
-
-	entityType := d.Get("entity_type").(string)
-	entityName := d.Get("entity_name").(string)
-	log.Printf("[INFO] Reading Quota %s", entityName)
-
-	foundQuota, err := c.DescribeQuota(entityType, entityName)
-	if err != nil {
-		log.Printf("[ERROR] Error getting quota %s from Kafka", err)
-		_, ok := err.(QuotaMissingError)
-		if ok {
-			d.SetId("")
-			return nil
-		}
-
-		return diag.FromErr(err)
-	}
-
-	log.Printf("[DEBUG] Setting the state from Kafka %v", foundQuota)
-	configs := map[string]float64{}
-	for _, op := range foundQuota.Ops {
-		configs[op.Key] = op.Value
-	}
-
-	errSet := errSetter{d: d}
-	if foundQuota.EntityName != "" {
-		// A default quota keeps entity_name unset; "" would differ from the
-		// state of a config without entity_name (and show up after import).
-		errSet.Set("entity_name", foundQuota.EntityName)
-	}
-	errSet.Set("entity_type", foundQuota.EntityType)
-	errSet.Set("config", configs)
-	if errSet.err != nil {
-		return diag.FromErr(errSet.err)
-	}
-
-	log.Printf("[INFO] Found Quota %s %+v.", foundQuota.ID(), foundQuota.Ops)
-	return diag.FromErr(setQuotaIdentity(d, foundQuota.EntityType, foundQuota.EntityName))
-}
-
-// importQuota accepts the resource ID (`name|type`, `entity-default|type`),
-// the `type:name` / `type:` form from the docs, or an identity.
-func importQuota(ctx context.Context, d *schema.ResourceData, m interface{}) ([]*schema.ResourceData, error) {
-	var entityType, entityName string
-	id := d.Id()
-	switch {
-	case id == "":
-		identity, err := d.Identity()
 		if err != nil {
-			return nil, err
+			return false, err
 		}
-		entityType, _ = identity.Get("entity_type").(string)
-		entityName, _ = identity.Get("entity_name").(string)
+		return present, nil
+	})
+}
+
+func (r *quotaResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
+	var plan quotaModel
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	q := quotaFromModel(ctx, plan, false, &resp.Diagnostics)
+	log.Printf("[INFO] Creating Quota %s", q)
+	if err := r.client.AlterQuota(q); err != nil {
+		resp.Diagnostics.AddError("Creating quota "+q.ID(), err.Error())
+		return
+	}
+	// AlterClientQuotas returns before every broker applied the change.
+	if err := r.waitQuota(ctx, q, true); err != nil {
+		resp.Diagnostics.AddError("Creating quota "+q.ID(), err.Error())
+		return
+	}
+	plan.ID = types.StringValue(q.ID())
+	resp.Diagnostics.Append(resp.State.Set(ctx, plan)...)
+	resp.Diagnostics.Append(resp.Identity.Set(ctx, quotaIdentityModel{
+		EntityType: types.StringValue(q.EntityType), EntityName: types.StringValue(q.EntityName),
+	})...)
+}
+
+func (r *quotaResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
+	var state quotaModel
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	found, err := r.client.DescribeQuota(state.EntityType.ValueString(), state.EntityName.ValueString())
+	var missing QuotaMissingError
+	if errors.As(err, &missing) {
+		resp.State.RemoveResource(ctx)
+		return
+	}
+	if err != nil {
+		resp.Diagnostics.AddError("Reading quota "+state.ID.ValueString(), err.Error())
+		return
+	}
+	config := map[string]float64{}
+	for _, op := range found.Ops {
+		config[op.Key] = op.Value
+	}
+	if len(config) > 0 || !state.Config.IsNull() {
+		m, d := types.MapValueFrom(ctx, types.Float64Type, config)
+		resp.Diagnostics.Append(d...)
+		state.Config = m
+	}
+	state.EntityType = types.StringValue(found.EntityType)
+	// A default quota keeps entity_name unset (null), like a config without it.
+	if found.EntityName != "" {
+		state.EntityName = types.StringValue(found.EntityName)
+	} else {
+		state.EntityName = types.StringNull()
+	}
+	state.ID = types.StringValue(found.ID())
+	resp.Diagnostics.Append(resp.State.Set(ctx, state)...)
+	resp.Diagnostics.Append(resp.Identity.Set(ctx, quotaIdentityModel{
+		EntityType: types.StringValue(found.EntityType), EntityName: types.StringValue(found.EntityName),
+	})...)
+}
+
+// Update is never called with changes: every attribute requires replacement.
+func (r *quotaResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
+	var plan quotaModel
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	resp.Diagnostics.Append(resp.State.Set(ctx, plan)...)
+}
+
+func (r *quotaResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
+	var state quotaModel
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	q := quotaFromModel(ctx, state, true, &resp.Diagnostics)
+	log.Printf("[INFO] Deleting quota %s", q)
+	if err := r.client.AlterQuota(q); err != nil {
+		resp.Diagnostics.AddError("Deleting quota "+q.ID(), err.Error())
+		return
+	}
+	if err := r.waitQuota(ctx, q, false); err != nil {
+		resp.Diagnostics.AddError("Deleting quota "+q.ID(), err.Error())
+	}
+}
+
+// parseQuotaImportID accepts the resource ID (`name|type`,
+// `entity-default|type`) and the documented `type:name` / `type:` form.
+func parseQuotaImportID(id string) (entityType, entityName string, err error) {
+	switch {
 	case strings.Count(id, "|") == 1:
 		parts := strings.SplitN(id, "|", 2)
 		entityName, entityType = parts[0], parts[1]
@@ -207,58 +222,43 @@ func importQuota(ctx context.Context, d *schema.ResourceData, m interface{}) ([]
 		parts := strings.SplitN(id, ":", 2)
 		entityType, entityName = parts[0], parts[1]
 	default:
-		return nil, fmt.Errorf("failed importing quota %q; expected entity_name|entity_type (entity-default|entity_type for a default quota) or entity_type:entity_name", id)
+		return "", "", fmt.Errorf("expected entity_name|entity_type (entity-default|entity_type for a default quota) or entity_type:entity_name, got %q", id)
 	}
 	switch entityType {
 	case "client-id", "user", "ip":
-	default:
-		return nil, fmt.Errorf("failed importing quota %q: entity type %q is not one of client-id, user, ip", id, entityType)
+		return entityType, entityName, nil
 	}
-
-	errSet := errSetter{d: d}
-	errSet.Set("entity_type", entityType)
-	if entityName != "" {
-		// Unset (not "") for a default quota, like a config without entity_name.
-		errSet.Set("entity_name", entityName)
-	}
-	if errSet.err != nil {
-		return nil, errSet.err
-	}
-	d.SetId(Quota{EntityType: entityType, EntityName: entityName}.ID())
-	if err := setQuotaIdentity(d, entityType, entityName); err != nil {
-		return nil, err
-	}
-	return []*schema.ResourceData{d}, nil
+	return "", "", fmt.Errorf("entity type %q in %q is not one of client-id, user, ip", entityType, id)
 }
 
-func setQuotaIdentity(d *schema.ResourceData, entityType, entityName string) error {
-	identity, err := d.Identity()
-	if err != nil {
-		return err
-	}
-	if err := identity.Set("entity_type", entityType); err != nil {
-		return err
-	}
-	return identity.Set("entity_name", entityName)
-}
-
-func newQuota(d *schema.ResourceData, removeAll bool) Quota {
-	config := d.Get("config").(map[string]interface{})
-	ops := []QuotaOp{}
-	for key, value := range config {
-		switch value := value.(type) {
-		case float64:
-			ops = append(ops, QuotaOp{
-				Key:    key,
-				Value:  value,
-				Remove: removeAll,
-			})
+func (r *quotaResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	var entityType, entityName string
+	if req.ID != "" {
+		var err error
+		entityType, entityName, err = parseQuotaImportID(req.ID)
+		if err != nil {
+			resp.Diagnostics.AddError("Invalid import ID", err.Error())
+			return
 		}
+	} else {
+		var id quotaIdentityModel
+		resp.Diagnostics.Append(req.Identity.Get(ctx, &id)...)
+		if resp.Diagnostics.HasError() {
+			return
+		}
+		entityType, entityName = id.EntityType.ValueString(), id.EntityName.ValueString()
 	}
-
-	return Quota{
-		EntityType: d.Get("entity_type").(string),
-		EntityName: d.Get("entity_name").(string),
-		Ops:        ops,
+	m := quotaModel{
+		ID:         types.StringValue(Quota{EntityType: entityType, EntityName: entityName}.ID()),
+		EntityType: types.StringValue(entityType),
+		EntityName: types.StringNull(),
+		Config:     types.MapNull(types.Float64Type),
 	}
+	if entityName != "" {
+		m.EntityName = types.StringValue(entityName)
+	}
+	resp.Diagnostics.Append(resp.State.Set(ctx, m)...)
+	resp.Diagnostics.Append(resp.Identity.Set(ctx, quotaIdentityModel{
+		EntityType: types.StringValue(entityType), EntityName: types.StringValue(entityName),
+	})...)
 }

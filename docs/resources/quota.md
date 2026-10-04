@@ -102,7 +102,7 @@ terraform import kafka_quota.default_user user:
 
 ### Read-Only
 
-- `id` (String) The ID of this resource.
+- `id` (String) `entity_name|entity_type`, `entity-default|entity_type` for a default quota.
 
 ## Quota Configuration Options
 

@@ -34,15 +34,15 @@ output "sha256_users" {
 
 ### Read-Only
 
-- `credentials` (List of Object) Matching credentials, sorted by ID. (see [below for nested schema](#nestedatt--credentials))
-- `id` (String) The ID of this resource.
+- `credentials` (Attributes List) Matching credentials, sorted by ID. (see [below for nested schema](#nestedatt--credentials))
+- `id` (String) Derived from the filters.
 
 <a id="nestedatt--credentials"></a>
 ### Nested Schema for `credentials`
 
 Read-Only:
 
-- `id` (String)
-- `scram_iterations` (Number)
-- `scram_mechanism` (String)
-- `username` (String)
+- `id` (String) The `kafka_user_scram_credential` resource ID, usable with `terraform import`.
+- `scram_iterations` (Number) SCRAM iterations.
+- `scram_mechanism` (String) `SCRAM-SHA-256` or `SCRAM-SHA-512`.
+- `username` (String) User name.
