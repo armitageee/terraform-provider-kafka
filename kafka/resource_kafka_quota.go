@@ -13,7 +13,6 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/identityschema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
-	"github.com/hashicorp/terraform-plugin-framework/resource/schema/mapplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
@@ -70,10 +69,9 @@ func (r *quotaResource) Schema(_ context.Context, _ resource.SchemaRequest, resp
 				PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()},
 			},
 			"config": schema.MapAttribute{
-				Optional:      true,
-				ElementType:   types.Float64Type,
-				Description:   "A map of string k/v properties.",
-				PlanModifiers: []planmodifier.Map{mapplanmodifier.RequiresReplace()},
+				Optional:    true,
+				ElementType: types.Float64Type,
+				Description: "Quota values, e.g. `producer_byte_rate`, `consumer_byte_rate`, `request_percentage`. Changed in place.",
 			},
 		},
 	}
@@ -184,11 +182,69 @@ func (r *quotaResource) Read(ctx context.Context, req resource.ReadRequest, resp
 	})...)
 }
 
-// Update is never called with changes: every attribute requires replacement.
+// Update changes the quota values in place with one AlterClientQuotas call:
+// new and changed keys are set, keys removed from config are removed. The
+// entity keeps a quota the whole time (before 0.19 this was delete + create).
 func (r *quotaResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
-	var plan quotaModel
+	var plan, state quotaModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	want := float64Map(ctx, plan.Config, &resp.Diagnostics)
+	had := float64Map(ctx, state.Config, &resp.Diagnostics)
+	q := Quota{EntityType: plan.EntityType.ValueString(), EntityName: plan.EntityName.ValueString()}
+	for k, v := range want {
+		if old, ok := had[k]; !ok || old != v {
+			q.Ops = append(q.Ops, QuotaOp{Key: k, Value: v})
+		}
+	}
+	for k := range had {
+		if _, ok := want[k]; !ok {
+			q.Ops = append(q.Ops, QuotaOp{Key: k, Remove: true})
+		}
+	}
+	if len(q.Ops) > 0 {
+		log.Printf("[INFO] Updating quota %s: %+v", q.ID(), q.Ops)
+		if err := r.client.AlterQuota(q); err != nil {
+			resp.Diagnostics.AddError("Updating quota "+q.ID(), err.Error())
+			return
+		}
+		// Wait until the brokers report exactly the planned values.
+		err := waitFor(ctx, "quota "+q.ID()+" to be updated", r.client.timeout(), time.Second, 2*time.Second, func() (bool, error) {
+			found, err := r.client.DescribeQuota(q.EntityType, q.EntityName)
+			if err != nil {
+				var missing QuotaMissingError
+				if errors.As(err, &missing) {
+					return len(want) == 0, nil
+				}
+				return false, err
+			}
+			have := map[string]float64{}
+			for _, op := range found.Ops {
+				have[op.Key] = op.Value
+			}
+			if len(have) != len(want) {
+				return false, nil
+			}
+			for k, v := range want {
+				if have[k] != v {
+					return false, nil
+				}
+			}
+			return true, nil
+		})
+		if err != nil {
+			resp.Diagnostics.AddError("Updating quota "+q.ID(), err.Error())
+			return
+		}
+	}
+	plan.ID = state.ID
 	resp.Diagnostics.Append(resp.State.Set(ctx, plan)...)
+	resp.Diagnostics.Append(resp.Identity.Set(ctx, quotaIdentityModel{
+		EntityType: types.StringValue(q.EntityType), EntityName: types.StringValue(q.EntityName),
+	})...)
 }
 
 func (r *quotaResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {

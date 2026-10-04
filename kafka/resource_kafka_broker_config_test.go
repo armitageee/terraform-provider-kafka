@@ -13,6 +13,9 @@ import (
 )
 
 // Broker 2 of docker-compose.yaml; no other test touches its dynamic config.
+// Keys without a topic-level counterpart only: the compat tests run 0.17.0,
+// which counted per-broker dynamic settings (e.g. message.max.bytes →
+// max.message.bytes) as topic config and would see drift.
 var testBrokerID = int64(2)
 
 func brokerConfigHCL(brokerID *int64, config map[string]string) string {
@@ -56,7 +59,7 @@ func TestAcc_BrokerConfigPerBroker(t *testing.T) {
 	r.Test(t, r.TestCase{
 		ProtoV6ProviderFactories: protoV6ProviderFactories(),
 		PreCheck:                 func() { testAccPreCheck(t) },
-		CheckDestroy:             testAccCheckBrokerConfigGone(id, "log.cleaner.threads", "message.max.bytes"),
+		CheckDestroy:             testAccCheckBrokerConfigGone(id, "log.cleaner.threads", "num.replica.fetchers"),
 		Steps: []r.TestStep{
 			{
 				Config: cfg(t, bs, brokerConfigHCL(id, map[string]string{"log.cleaner.threads": "2"})),
@@ -75,11 +78,11 @@ func TestAcc_BrokerConfigPerBroker(t *testing.T) {
 				},
 			},
 			{
-				Config: cfg(t, bs, brokerConfigHCL(id, map[string]string{"log.cleaner.threads": "3", "message.max.bytes": "2000000"})),
+				Config: cfg(t, bs, brokerConfigHCL(id, map[string]string{"log.cleaner.threads": "3", "num.replica.fetchers": "2"})),
 			},
 			{
 				// Dropping a key reverts it (DELETE), the other one stays.
-				Config: cfg(t, bs, brokerConfigHCL(id, map[string]string{"message.max.bytes": "2000000"})),
+				Config: cfg(t, bs, brokerConfigHCL(id, map[string]string{"num.replica.fetchers": "2"})),
 				Check:  testAccCheckBrokerConfigGone(id, "log.cleaner.threads"),
 			},
 			{
@@ -87,7 +90,7 @@ func TestAcc_BrokerConfigPerBroker(t *testing.T) {
 				ImportState:       true,
 				ImportStateId:     "2",
 				ImportStateVerify: true,
-				Config:            cfg(t, bs, brokerConfigHCL(id, map[string]string{"message.max.bytes": "2000000"})),
+				Config:            cfg(t, bs, brokerConfigHCL(id, map[string]string{"num.replica.fetchers": "2"})),
 			},
 		},
 	})

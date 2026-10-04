@@ -6,6 +6,7 @@ import (
 
 	uuid "github.com/hashicorp/go-uuid"
 	r "github.com/hashicorp/terraform-plugin-testing/helper/resource"
+	"github.com/hashicorp/terraform-plugin-testing/plancheck"
 	"github.com/hashicorp/terraform-plugin-testing/terraform"
 )
 
@@ -52,6 +53,35 @@ func TestAcc_QuotaConfigUpdate(t *testing.T) {
 			{
 				Config: cfg(t, bs, fmt.Sprintf(testResourceQuota1, quotaEntityName, "3000000")),
 				Check:  testResourceQuota_updateCheck,
+				// A value change is an in-place update, not delete + create.
+				ConfigPlanChecks: r.ConfigPlanChecks{
+					PreApply: []plancheck.PlanCheck{plancheck.ExpectResourceAction("kafka_quota.test1", plancheck.ResourceActionUpdate)},
+				},
+			},
+			{
+				// Dropping a key removes just that value.
+				Config: cfg(t, bs, fmt.Sprintf(`
+resource "kafka_quota" "test1" {
+  entity_name = "%s"
+  entity_type = "client-id"
+  config = {
+    "consumer_byte_rate" = "3000000"
+  }
+}
+`, quotaEntityName)),
+				ConfigPlanChecks: r.ConfigPlanChecks{
+					PreApply: []plancheck.PlanCheck{plancheck.ExpectResourceAction("kafka_quota.test1", plancheck.ResourceActionUpdate)},
+				},
+				Check: func(*terraform.State) error {
+					q, err := testProvider.client.DescribeQuota("client-id", quotaEntityName)
+					if err != nil {
+						return err
+					}
+					if len(q.Ops) != 1 || q.Ops[0].Key != "consumer_byte_rate" || q.Ops[0].Value != 3000000 {
+						return fmt.Errorf("quota values = %+v, want only consumer_byte_rate=3000000", q.Ops)
+					}
+					return nil
+				},
 			},
 		},
 	})

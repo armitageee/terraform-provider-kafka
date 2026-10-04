@@ -70,11 +70,17 @@ func configToResources(topic Topic, c *Config) []*sarama.AlterConfigsResource {
 	}
 }
 
+// isDefault reports whether a topic config value is inherited (Kafka default,
+// server.properties, or a dynamic broker setting at cluster or broker level)
+// rather than set on the topic. A per-broker dynamic setting (e.g. from
+// kafka_broker_config) is inherited too; treating it as the topic's own made
+// every topic on that broker drift.
 func isDefault(tc *sarama.ConfigEntry, version int) bool {
 	if version == 0 {
 		return tc.Default
 	}
 	return tc.Source == sarama.SourceDefault ||
 		tc.Source == sarama.SourceStaticBroker ||
-		tc.Source == sarama.SourceDynamicDefaultBroker
+		tc.Source == sarama.SourceDynamicDefaultBroker ||
+		tc.Source == sarama.SourceDynamicBroker
 }

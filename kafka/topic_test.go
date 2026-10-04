@@ -143,3 +143,15 @@ func TestConfigToResources_DoesNotMutateCallerMap(t *testing.T) {
 func stringPtr(s string) *string {
 	return &s
 }
+
+func TestIsDefaultTopicConfigSources(t *testing.T) {
+	inherited := []sarama.ConfigSource{sarama.SourceDefault, sarama.SourceStaticBroker, sarama.SourceDynamicDefaultBroker, sarama.SourceDynamicBroker}
+	for _, src := range inherited {
+		if !isDefault(&sarama.ConfigEntry{Source: src}, 1) {
+			t.Errorf("source %v must count as inherited", src)
+		}
+	}
+	if isDefault(&sarama.ConfigEntry{Source: sarama.SourceTopic}, 1) {
+		t.Error("a topic-level value is the topic's own")
+	}
+}
