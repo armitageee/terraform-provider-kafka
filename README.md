@@ -21,12 +21,14 @@ A [Terraform][1] plugin for managing [Apache Kafka][2].
 `terraform-provider-kafka` is available on the terraform registry. To install, add
 the below into your `main.tf` and execute `terraform init`
 
+Requires Terraform 1.0+ or any OpenTofu (plugin protocol 6, since 0.18.0).
+
 ```tf
 terraform {
   required_providers {
     kafka = {
       source  = "armitageee/kafka"
-      version = "~> 0.14"
+      version = "~> 0.18"
     }
   }
 }

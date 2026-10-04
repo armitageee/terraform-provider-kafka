@@ -11,6 +11,8 @@ description: |-
 
 OpenTofu: use the full address `registry.terraform.io/armitageee/kafka`.
 
+Since 0.18.0 the provider is built on terraform-plugin-framework and needs **Terraform 1.0+** or any OpenTofu (plugin protocol 6). Existing state works unchanged.
+
 The Kafka provider is used to interact with [Apache Kafka](https://kafka.apache.org/) clusters. The provider allows you to manage Kafka topics, ACLs, quotas, and SCRAM credentials. It supports various authentication methods including TLS, SASL/PLAIN, SASL/SCRAM, AWS IAM, and OAuth.
 
 ## Documentation
