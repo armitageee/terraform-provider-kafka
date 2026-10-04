@@ -165,17 +165,16 @@ func apiVersionsFromBroker(broker *sarama.Broker, config *sarama.Config, ch chan
 	}
 }
 
+// rawApiVersionsRequest asks one broker for its API versions. The broker is
+// one of the sarama client's own (client.Brokers()) and stays open: closing it
+// here made the next requests reopen it concurrently, and sarama's Open marks
+// a broker open before it holds the connection lock, so a parallel request
+// could see no connection and fail with "kafka: broker not connected"
+// (seen with Kafka 3.9 KRaft). The client closes its brokers on Close.
 func rawApiVersionsRequest(broker *sarama.Broker, config *sarama.Config) (*sarama.ApiVersionsResponse, error) {
 	if err := broker.Open(config); err != nil && !errors.Is(err, sarama.ErrAlreadyConnected) {
 		return nil, err
 	}
-
-	defer func() {
-		if err := broker.Close(); err != nil && !errors.Is(err, sarama.ErrNotConnected) {
-			log.Printf("[ERROR] failed to close broker: %v", err)
-		}
-	}()
-
 	return broker.ApiVersions(&sarama.ApiVersionsRequest{})
 }
 

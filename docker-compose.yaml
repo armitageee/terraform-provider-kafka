@@ -48,6 +48,10 @@ services:
   kafka2:
     image: ${KAFKA_IMAGE:-apache/kafka-native:4.3.1}
     restart: on-failure
+    # Broker-only nodes exit (code 99) when the KRaft controller is not up yet.
+    depends_on:
+      kafka1:
+        condition: service_healthy
     # Brokers sometimes exit on first start (code 99) while the controller
     # is not up yet; restart them, and let `up --wait` wait for the listener.
     healthcheck:
@@ -94,6 +98,10 @@ services:
   kafka3:
     image: ${KAFKA_IMAGE:-apache/kafka-native:4.3.1}
     restart: on-failure
+    # Broker-only nodes exit (code 99) when the KRaft controller is not up yet.
+    depends_on:
+      kafka1:
+        condition: service_healthy
     # Brokers sometimes exit on first start (code 99) while the controller
     # is not up yet; restart them, and let `up --wait` wait for the listener.
     healthcheck:
