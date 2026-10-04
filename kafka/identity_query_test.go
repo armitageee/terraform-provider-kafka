@@ -2,6 +2,9 @@ package kafka
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	uuid "github.com/hashicorp/go-uuid"
@@ -14,10 +17,21 @@ import (
 )
 
 // Identity, import by identity and `terraform query` need Terraform >= 1.14
-// (list resources); older binaries skip these tests.
+// (list resources); older binaries skip these tests. OpenTofu has no `query`
+// (and its version numbers are not Terraform's), so it is skipped by name.
 var requireQuery = []tfversion.TerraformVersionCheck{tfversion.SkipBelow(tfversion.Version1_14_0)}
 
+// skipOnOpenTofu skips a test when the acceptance tests run on OpenTofu
+// (TF_ACC_TERRAFORM_PATH points to a tofu binary).
+func skipOnOpenTofu(t *testing.T, why string) {
+	t.Helper()
+	if strings.Contains(filepath.Base(os.Getenv("TF_ACC_TERRAFORM_PATH")), "tofu") {
+		t.Skipf("OpenTofu: %s", why)
+	}
+}
+
 func TestAcc_TopicIdentityImportAndQuery(t *testing.T) {
+	skipOnOpenTofu(t, "no terraform query / import by identity")
 	t.Parallel()
 	u, err := uuid.GenerateUUID()
 	if err != nil {
@@ -65,6 +79,7 @@ list "kafka_topic" "test" {
 }
 
 func TestAcc_ACLIdentityImportAndQuery(t *testing.T) {
+	skipOnOpenTofu(t, "no terraform query / import by identity")
 	t.Parallel()
 	u, err := uuid.GenerateUUID()
 	if err != nil {
@@ -123,6 +138,7 @@ list "kafka_acl" "test" {
 }
 
 func TestAcc_QuotaIdentityImportAndQuery(t *testing.T) {
+	skipOnOpenTofu(t, "no terraform query / import by identity")
 	t.Parallel()
 	u, err := uuid.GenerateUUID()
 	if err != nil {
@@ -183,6 +199,7 @@ list "kafka_quota" "test" {
 // Not parallel: the default client-id quota is shared with the other default
 // quota tests.
 func TestAcc_DefaultQuotaImport(t *testing.T) {
+	skipOnOpenTofu(t, "no terraform query / import by identity")
 	bs := testBootstrapServers[0]
 	config := cfg(t, bs, fmt.Sprintf(testResourceQuotaDefault, "4000000"))
 
@@ -227,6 +244,7 @@ resource "kafka_user_scram_credential" "test" {
 `
 
 func TestAcc_UserScramCredentialIdentityImportAndQuery(t *testing.T) {
+	skipOnOpenTofu(t, "no terraform query / import by identity")
 	t.Parallel()
 	u, err := uuid.GenerateUUID()
 	if err != nil {

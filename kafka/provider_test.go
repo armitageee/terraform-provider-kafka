@@ -2,6 +2,7 @@ package kafka
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
 	"strings"
@@ -12,6 +13,41 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-go/tfprotov6"
 )
+
+// The provider under test is registered as registry.terraform.io/armitageee/kafka,
+// the published address, for Terraform and OpenTofu alike: OpenTofu rejects
+// terraform-plugin-testing's default (legacy "-" namespace), and the compat
+// tests continue state written by the published provider at that address.
+func init() {
+	if os.Getenv("TF_ACC_PROVIDER_NAMESPACE") == "" {
+		if err := os.Setenv("TF_ACC_PROVIDER_NAMESPACE", "armitageee"); err != nil {
+			panic(err)
+		}
+	}
+}
+
+func testProviderSource() string {
+	host := os.Getenv("TF_ACC_PROVIDER_HOST")
+	if host == "" {
+		host = "registry.terraform.io"
+	}
+	return host + "/" + os.Getenv("TF_ACC_PROVIDER_NAMESPACE") + "/kafka"
+}
+
+// requiredProviders pins the provider address in test configs. Without it an
+// import step (its config gets no required_providers from the framework)
+// resolves the implicit hashicorp/kafka.
+func requiredProviders() string {
+	return fmt.Sprintf(`
+terraform {
+  required_providers {
+    kafka = {
+      source = %q
+    }
+  }
+}
+`, testProviderSource())
+}
 
 // testProvider gives acceptance-test checks a Kafka client configured like
 // the provider in the tests: bootstrap servers from KAFKA_BOOTSTRAP_SERVERS,
