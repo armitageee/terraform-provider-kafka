@@ -234,3 +234,31 @@ func (c *LazyClient) DescribeCluster() (*ClusterInfo, error) {
 	}
 	return c.inner.DescribeCluster()
 }
+
+func (c *LazyClient) DynamicBrokerConfigs(brokerID *int64) (map[string]string, error) {
+	if err := c.init(); err != nil {
+		return nil, err
+	}
+	return c.inner.DynamicBrokerConfigs(brokerID)
+}
+
+func (c *LazyClient) AlterBrokerConfigs(brokerID *int64, set map[string]string, del []string, validateOnly bool) error {
+	if err := c.init(); err != nil {
+		return err
+	}
+	return c.inner.AlterBrokerConfigs(brokerID, set, del, validateOnly)
+}
+
+func (c *LazyClient) SensitiveBrokerConfigs() (map[string]bool, error) {
+	if err := c.init(); err != nil {
+		return nil, err
+	}
+	return c.inner.SensitiveBrokerConfigs()
+}
+
+func (c *LazyClient) BrokerConfigEntries(brokerID int64) ([]BrokerConfigEntry, error) {
+	if err := c.init(); err != nil {
+		return nil, err
+	}
+	return c.inner.BrokerConfigEntries(brokerID)
+}

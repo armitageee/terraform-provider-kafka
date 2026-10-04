@@ -450,3 +450,73 @@ func (d *userScramCredentialsDataSource) Read(ctx context.Context, req datasourc
 	m.ID = types.StringValue(filterID("scram", mechanism, prefix))
 	resp.Diagnostics.Append(resp.State.Set(ctx, m)...)
 }
+
+// --- kafka_broker_config -----------------------------------------------------
+
+type brokerConfigDataSource struct{ baseDataSource }
+
+func newBrokerConfigDataSource() datasource.DataSource { return &brokerConfigDataSource{} }
+
+var brokerConfigElem = map[string]attr.Type{
+	"name": types.StringType, "value": types.StringType, "source": types.StringType,
+	"read_only": types.BoolType, "sensitive": types.BoolType,
+}
+
+type brokerConfigDataModel struct {
+	ID              types.String `tfsdk:"id"`
+	BrokerID        types.Int64  `tfsdk:"broker_id"`
+	IncludeDefaults types.Bool   `tfsdk:"include_defaults"`
+	Configs         types.List   `tfsdk:"configs"`
+}
+
+func (d *brokerConfigDataSource) Metadata(_ context.Context, _ datasource.MetadataRequest, resp *datasource.MetadataResponse) {
+	resp.TypeName = "kafka_broker_config"
+}
+
+func (d *brokerConfigDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, resp *datasource.SchemaResponse) {
+	resp.Schema = schema.Schema{
+		MarkdownDescription: "Effective configuration of one broker and where each value comes from: `dynamic_broker` (set for this broker), `dynamic_default` (cluster-wide dynamic default), `static` (`server.properties`) or `default` (Kafka default).",
+		Attributes: map[string]schema.Attribute{
+			"id":               computedString("The broker ID."),
+			"broker_id":        schema.Int64Attribute{Required: true, Description: "Node ID of the broker."},
+			"include_defaults": schema.BoolAttribute{Optional: true, Description: "Also list settings at their Kafka default. Default `false`."},
+			"configs": schema.ListNestedAttribute{
+				Computed:    true,
+				Description: "Settings sorted by name. Sensitive values are empty (Kafka never returns them).",
+				NestedObject: schema.NestedAttributeObject{Attributes: map[string]schema.Attribute{
+					"name":      computedString("Setting name."),
+					"value":     computedString("Effective value."),
+					"source":    computedString("`dynamic_broker`, `dynamic_default`, `static` or `default`."),
+					"read_only": schema.BoolAttribute{Computed: true, Description: "Only changeable in `server.properties` (restart)."},
+					"sensitive": schema.BoolAttribute{Computed: true, Description: "Value is secret and not returned."},
+				}},
+			},
+		},
+	}
+}
+
+func (d *brokerConfigDataSource) Read(ctx context.Context, req datasource.ReadRequest, resp *datasource.ReadResponse) {
+	var m brokerConfigDataModel
+	resp.Diagnostics.Append(req.Config.Get(ctx, &m)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	entries, err := d.client.BrokerConfigEntries(m.BrokerID.ValueInt64())
+	if err != nil {
+		resp.Diagnostics.AddError(fmt.Sprintf("Describing broker %d", m.BrokerID.ValueInt64()), err.Error())
+		return
+	}
+	items := []map[string]attr.Value{}
+	for _, e := range entries {
+		if e.Source == "default" && !m.IncludeDefaults.ValueBool() {
+			continue
+		}
+		items = append(items, map[string]attr.Value{
+			"name": types.StringValue(e.Name), "value": types.StringValue(e.Value), "source": types.StringValue(e.Source),
+			"read_only": types.BoolValue(e.ReadOnly), "sensitive": types.BoolValue(e.Sensitive),
+		})
+	}
+	m.Configs = objectList(brokerConfigElem, items, resp)
+	m.ID = types.StringValue(fmt.Sprint(m.BrokerID.ValueInt64()))
+	resp.Diagnostics.Append(resp.State.Set(ctx, m)...)
+}

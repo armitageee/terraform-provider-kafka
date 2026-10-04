@@ -97,7 +97,7 @@ terraform import kafka_quota.default_user user:
 
 ### Optional
 
-- `config` (Map of Number) A map of string k/v properties.
+- `config` (Map of Number) Quota values, e.g. `producer_byte_rate`, `consumer_byte_rate`, `request_percentage`. Changed in place.
 - `entity_name` (String) The name of the entity (if entity_name is not provided, it will create entity-default Kafka quota)
 
 ### Read-Only
