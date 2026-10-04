@@ -45,7 +45,7 @@ func compatName(t *testing.T) string {
 func TestAcc_CompatTopic(t *testing.T) {
 	t.Parallel()
 	name := compatName(t)
-	config := cfg(t, testBootstrapServers[0], fmt.Sprintf(testResourceTopic_initialConfig, name)+fmt.Sprintf(`
+	config := providerOnlyCfg(t, testBootstrapServers[0], fmt.Sprintf(testResourceTopic_initialConfig, name)+fmt.Sprintf(`
 resource "kafka_topic" "noconfig" {
   name               = "%s-noconfig"
   replication_factor = 1
@@ -65,7 +65,7 @@ func TestAcc_CompatACL(t *testing.T) {
 	r.Test(t, r.TestCase{
 		PreCheck:     func() { testAccPreCheck(t) },
 		CheckDestroy: func(*terraform.State) error { return testAccCheckAclDestroy(name) },
-		Steps:        compatSteps(t, cfg(t, testBootstrapServers[0], fmt.Sprintf(testResourceACL_initialConfig, name))),
+		Steps:        compatSteps(t, providerOnlyCfg(t, testBootstrapServers[0], fmt.Sprintf(testResourceACL_initialConfig, name))),
 	})
 }
 
@@ -75,7 +75,7 @@ func TestAcc_CompatQuota(t *testing.T) {
 	r.Test(t, r.TestCase{
 		PreCheck:     func() { testAccPreCheck(t) },
 		CheckDestroy: testAccCheckQuotaDestroy,
-		Steps:        compatSteps(t, cfg(t, testBootstrapServers[0], fmt.Sprintf(testResourceQuota1, name, "4000000"))),
+		Steps:        compatSteps(t, providerOnlyCfg(t, testBootstrapServers[0], fmt.Sprintf(testResourceQuota1, name, "4000000"))),
 	})
 }
 
@@ -84,7 +84,7 @@ func TestAcc_CompatDefaultQuota(t *testing.T) {
 	r.Test(t, r.TestCase{
 		PreCheck:     func() { testAccPreCheck(t) },
 		CheckDestroy: testAccCheckQuotaDestroy,
-		Steps:        compatSteps(t, cfg(t, testBootstrapServers[0], fmt.Sprintf(testResourceQuotaDefault, "4000000"))),
+		Steps:        compatSteps(t, providerOnlyCfg(t, testBootstrapServers[0], fmt.Sprintf(testResourceQuotaDefault, "4000000"))),
 	})
 }
 
@@ -92,7 +92,7 @@ func TestAcc_CompatUserScramCredential(t *testing.T) {
 	t.Parallel()
 	name := compatName(t)
 	// Legacy password (in state) and write-only password_wo with a version.
-	config := cfg(t, testBootstrapServers[0], fmt.Sprintf(testResourceUserScramCredential_SHA256, name)+fmt.Sprintf(`
+	config := providerOnlyCfg(t, testBootstrapServers[0], fmt.Sprintf(testResourceUserScramCredential_SHA256, name)+fmt.Sprintf(`
 resource "kafka_user_scram_credential" "wo" {
   username            = "%s-wo"
   scram_mechanism     = "SCRAM-SHA-512"

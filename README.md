@@ -60,7 +60,9 @@ your [terraform plugin directory][third-party-plugins] (typically `~/.terraform.
    (Kafka 4.3.1 by default; another version: `KAFKA_IMAGE=apache/kafka-native:3.9.1 docker compose up -d --wait`)
 0. Run the acceptance tests `make testacc`. They use `terraform-plugin-testing` and the real
    Terraform CLI from `PATH` (or `TF_ACC_TERRAFORM_PATH`); identity and `terraform query`
-   tests need Terraform 1.14+ and are skipped on older versions
+   tests need Terraform 1.14+ and are skipped on older versions.
+   On OpenTofu: `TF_ACC_TERRAFORM_PATH=$(command -v tofu) make testacc` (`query` and
+   import-by-identity tests are skipped there). CI runs both CLIs against Kafka 3.x and 4.x
 
 ## Provider Configuration
 

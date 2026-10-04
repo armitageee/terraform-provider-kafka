@@ -277,20 +277,20 @@ resource "kafka_acl" "test" {
 `
 
 // lintignore:AT004
+// cfg is a test config with the provider address pinned (requiredProviders)
+// and the bootstrap servers; TLS settings come from KAFKA_* env.
 func cfg(t *testing.T, bs string, extraCfg string) string {
-	_, err := os.ReadFile("../secrets/ca.crt")
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = os.ReadFile("../secrets/terraform-cert.pem")
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = os.ReadFile("../secrets/terraform.pem")
-	if err != nil {
-		t.Fatal(err)
-	}
+	return requiredProviders() + providerOnlyCfg(t, bs, extraCfg)
+}
 
+// providerOnlyCfg has no terraform block, so terraform-plugin-testing fills
+// required_providers itself (needed for ExternalProviders steps).
+func providerOnlyCfg(t *testing.T, bs string, extraCfg string) string {
+	for _, f := range []string{"../secrets/ca.crt", "../secrets/terraform-cert.pem", "../secrets/terraform.pem"} {
+		if _, err := os.ReadFile(f); err != nil {
+			t.Fatal(err)
+		}
+	}
 	return fmt.Sprintf(`
 provider "kafka" {
 	bootstrap_servers = ["%s"]
