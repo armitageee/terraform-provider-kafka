@@ -15,7 +15,7 @@ require (
 	github.com/jcmturner/gokrb5/v8 v8.4.4
 	github.com/xdg/scram v1.0.5
 	golang.org/x/net v0.59.0
-	golang.org/x/oauth2 v0.35.0
+	golang.org/x/oauth2 v0.37.0
 )
 
 require (
