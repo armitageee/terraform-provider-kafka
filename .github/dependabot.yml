@@ -1,17 +1,26 @@
-# See GitHub's docs for more information on this file:
-# https://docs.github.com/en/free-pro-team@latest/github/administering-a-repository/configuration-options-for-dependency-updates
+# Dependency updates, grouped (fewer PRs, fewer CI runs: every PR runs the whole
+# acctest matrix). Major versions are not grouped: each stays a separate PR to
+# review by hand. Weekly, Monday morning.
 version: 2
 updates:
-  # Maintain dependencies for GitHub Actions
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
-      # Check for updates to GitHub Actions every weekday
-      interval: "daily"
+      interval: "weekly"
+      day: "monday"
+      time: "07:00"
+      timezone: "Europe/Moscow"
+    groups:
+      actions:
+        patterns: ["*"]
 
-  # Maintain dependencies for Go modules
   - package-ecosystem: "gomod"
     directory: "/"
     schedule:
-      # Check for updates to Go modules every weekday
-      interval: "daily"
+      interval: "weekly"
+      day: "monday"
+      time: "07:00"
+      timezone: "Europe/Moscow"
+    groups:
+      go-minor-patch:
+        update-types: ["minor", "patch"]
