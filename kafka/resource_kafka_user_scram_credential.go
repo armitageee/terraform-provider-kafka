@@ -252,6 +252,24 @@ func (r *userScramCredentialResource) Update(ctx context.Context, req resource.U
 			resp.Diagnostics.AddError("Updating user scram credential "+usc.ID(), err.Error())
 			return
 		}
+		// Like create: AlterUserScramCredentials returns before every broker
+		// applied the change; a Describe on a lagging broker answers with the
+		// previous value (e.g. the old iterations).
+		err := waitFor(ctx, "user scram credential "+usc.ID()+" to be updated", r.client.timeout(), time.Second, 2*time.Second, func() (bool, error) {
+			found, err := r.client.DescribeUserScramCredential(usc.Name, usc.Mechanism.String())
+			var missing UserScramCredentialMissingError
+			if errors.As(err, &missing) {
+				return false, nil
+			}
+			if err != nil {
+				return false, err
+			}
+			return found.Iterations == usc.Iterations, nil
+		})
+		if err != nil {
+			resp.Diagnostics.AddError("Updating user scram credential "+usc.ID(), err.Error())
+			return
+		}
 	}
 	plan.ID = state.ID
 	plan.PasswordWo = types.StringNull()
