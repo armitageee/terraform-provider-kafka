@@ -193,6 +193,7 @@ Due to Redpanda not implementing some Metadata APIs, we need to force the Kafka 
 | `sasl_aws_creds_debug`  | Enable debug logging for AWS authentication.                                                                          | `false`    |
 | `sasl_token_url`        | The url to retrieve oauth2 tokens from, when using sasl mechanism `oauthbearer`                                         | `""`    |
 | `sasl_oauth_scopes`     | OAuth scopes to request when using the `oauthbearer` mechanism                                                         | `[]`       |
+| `adopt_existing_topics` | Adopt topics that already exist in the cluster into state on create instead of failing with `TOPIC_ALREADY_EXISTS`     | `false`    |
 
 
 ## Resources
@@ -236,6 +237,30 @@ You can import topics with the following
 ```sh
 terraform import kafka_topic.logs systemd_logs
 ```
+
+#### Adopting Existing Topics
+
+When bootstrapping a landscape whose topics already exist in the cluster, set
+`adopt_existing = true` on the resource (or `adopt_existing_topics = true` on the
+provider) to adopt them into state on create instead of failing with
+`TOPIC_ALREADY_EXISTS`:
+
+```hcl
+resource "kafka_topic" "logs" {
+  name               = "systemd_logs"
+  replication_factor = 2
+  partitions         = 100
+  adopt_existing     = true
+}
+```
+
+A topic is adopted only when it matches the configuration: same replication
+factor, not more partitions than planned (fewer are increased to the planned
+count), and every pinned `config` key equal. Otherwise the apply fails with the
+list of differences. Keys present on the topic but not pinned in the
+configuration are ignored (left to drift detection). Note that an adopted topic
+is fully managed afterwards: removing it from the configuration deletes it from
+the cluster.
 
 
 ### `kafka_acl`

@@ -154,6 +154,7 @@ provider "kafka" {
 
 ### Optional
 
+- `adopt_existing_topics` (Boolean) Adopt topics that already exist in the cluster into state on create instead of failing with TOPIC_ALREADY_EXISTS (bootstrap of pre-existing topics). The existing topic is adopted only when it matches the configuration; the per-resource adopt_existing attribute overrides this default.
 - `ca_cert` (String) CA certificate file to validate the server's certificate.
 - `ca_cert_file` (String, Deprecated) Path to a CA certificate file to validate the server's certificate.
 - `client_cert` (String) The client certificate.

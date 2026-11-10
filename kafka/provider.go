@@ -71,6 +71,7 @@ type providerModel struct {
 	SkipTlsVerify                          types.Bool   `tfsdk:"skip_tls_verify"`
 	Timeout                                types.Int64  `tfsdk:"timeout"`
 	TlsEnabled                             types.Bool   `tfsdk:"tls_enabled"`
+	AdoptExistingTopics                    types.Bool   `tfsdk:"adopt_existing_topics"`
 }
 
 func (p *KafkaProvider) Metadata(_ context.Context, _ provider.MetadataRequest, resp *provider.MetadataResponse) {
@@ -117,6 +118,7 @@ func (p *KafkaProvider) Schema(_ context.Context, _ provider.SchemaRequest, resp
 		"skip_tls_verify":                             pschema.BoolAttribute{Optional: true, Description: "Set this to true only if the target Kafka server is an insecure development instance."},
 		"timeout":                                     pschema.Int64Attribute{Optional: true, Description: "Timeout in seconds"},
 		"tls_enabled":                                 pschema.BoolAttribute{Optional: true, Description: "Enable communication with the Kafka Cluster over TLS."},
+		"adopt_existing_topics":                       pschema.BoolAttribute{Optional: true, Description: "Adopt topics that already exist in the cluster into state on create instead of failing with TOPIC_ALREADY_EXISTS (bootstrap of pre-existing topics). The existing topic is adopted only when it matches the configuration; the per-resource adopt_existing attribute overrides this default."},
 	}}
 }
 
@@ -230,8 +232,9 @@ func buildConfig(ctx context.Context, m providerModel, diags *diag.Diagnostics) 
 			KerberosConfigPath: str(m.SaslGssapiKerberosConfigPath, "KAFKA_SASL_GSSAPI_KRB5_CONF", ""),
 			DisablePAFXFAST:    boolean(m.SaslGssapiDisablePafxfast, "KAFKA_SASL_GSSAPI_DISABLE_PAFXFAST", true),
 		},
-		TLSEnabled: boolean(m.TlsEnabled, "KAFKA_ENABLE_TLS", true),
-		Timeout:    timeout,
+		TLSEnabled:          boolean(m.TlsEnabled, "KAFKA_ENABLE_TLS", true),
+		Timeout:             timeout,
+		AdoptExistingTopics: boolean(m.AdoptExistingTopics, "KAFKA_ADOPT_EXISTING_TOPICS", false),
 	}
 	// Deprecated *_file attributes are fallbacks (same env variables).
 	if config.CACert == "" {

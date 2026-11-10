@@ -155,3 +155,57 @@ func TestIsDefaultTopicConfigSources(t *testing.T) {
 		t.Error("a topic-level value is the topic's own")
 	}
 }
+
+func TestConfigAdoptable(t *testing.T) {
+	tests := []struct {
+		name    string
+		actual  map[string]*string
+		planned map[string]*string
+		wantErr bool
+	}{
+		{
+			name:    "empty planned config always adoptable",
+			actual:  map[string]*string{"retention.ms": stringPtr("604800000")},
+			planned: map[string]*string{},
+		},
+		{
+			name: "identical keys adoptable, extra actual keys ignored",
+			actual: map[string]*string{
+				"retention.ms":   stringPtr("604800000"),
+				"cleanup.policy": stringPtr("delete"),
+			},
+			planned: map[string]*string{"retention.ms": stringPtr("604800000")},
+		},
+		{
+			name:    "value mismatch",
+			actual:  map[string]*string{"retention.ms": stringPtr("604800000")},
+			planned: map[string]*string{"retention.ms": stringPtr("86400000")},
+			wantErr: true,
+		},
+		{
+			name:    "planned key missing on topic",
+			actual:  map[string]*string{"segment.ms": stringPtr("86400000")},
+			planned: map[string]*string{"retention.ms": stringPtr("604800000")},
+			wantErr: true,
+		},
+		{
+			name:    "cleanup.policy order-insensitive",
+			actual:  map[string]*string{"cleanup.policy": stringPtr("compact,delete")},
+			planned: map[string]*string{"cleanup.policy": stringPtr("delete,compact")},
+		},
+		{
+			name:    "cleanup.policy mismatch",
+			actual:  map[string]*string{"cleanup.policy": stringPtr("compact")},
+			planned: map[string]*string{"cleanup.policy": stringPtr("delete,compact")},
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := configAdoptable(tt.actual, tt.planned)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("configAdoptable() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}

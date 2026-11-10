@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/hashicorp/terraform-plugin-framework-validators/int64validator"
@@ -39,6 +40,7 @@ type topicModel struct {
 	Partitions        types.Int64  `tfsdk:"partitions"`
 	ReplicationFactor types.Int64  `tfsdk:"replication_factor"`
 	Config            types.Map    `tfsdk:"config"`
+	AdoptExisting     types.Bool   `tfsdk:"adopt_existing"`
 }
 
 type topicIdentityModel struct {
@@ -86,6 +88,10 @@ func (r *topicResource) Schema(_ context.Context, _ resource.SchemaRequest, resp
 				ElementType: types.StringType,
 				Description: "A map of string k/v attributes.",
 			},
+			"adopt_existing": schema.BoolAttribute{
+				Optional:    true,
+				Description: "Adopt the topic into state if it already exists in the cluster instead of failing with TOPIC_ALREADY_EXISTS. The topic is adopted only when it matches this configuration (same replication factor, not fewer partitions, every pinned config key equal); otherwise the apply fails with the differences. Defaults to the provider-level adopt_existing_topics.",
+			},
 		},
 	}
 }
@@ -131,7 +137,17 @@ func (r *topicResource) Create(ctx context.Context, req resource.CreateRequest, 
 		resp.Diagnostics.AddError("Invalid topic", err.Error())
 		return
 	}
+	// adopt: per-resource attribute overrides the provider-level default.
+	adopt := r.client.Config.AdoptExistingTopics
+	if !plan.AdoptExisting.IsNull() {
+		adopt = plan.AdoptExisting.ValueBool()
+	}
+
 	if err := r.client.CreateTopic(t); err != nil {
+		if adopt && errors.Is(err, ErrTopicAlreadyExists) {
+			r.adoptTopic(ctx, &plan, t, resp)
+			return
+		}
 		resp.Diagnostics.AddError("Creating topic "+t.Name, err.Error())
 		return
 	}
@@ -149,6 +165,62 @@ func (r *topicResource) Create(ctx context.Context, req resource.CreateRequest, 
 	}
 	plan.ID = types.StringValue(t.Name)
 	resp.Diagnostics.Append(resp.State.Set(ctx, plan)...)
+	resp.Diagnostics.Append(resp.Identity.Set(ctx, topicIdentityModel{Name: plan.Name})...)
+}
+
+// adoptTopic brings an already-existing topic into state when create hit
+// TOPIC_ALREADY_EXISTS and adoption is enabled. The topic is adopted only when
+// it matches the plan: replication factor equal (or -1), partitions not more
+// than planned (fewer are increased to the planned count), and every config
+// key pinned in the plan equal on the topic (compared against the raw
+// describe, so keys pinned to a broker default value match too).
+func (r *topicResource) adoptTopic(ctx context.Context, plan *topicModel, t Topic, resp *resource.CreateResponse) {
+	actual, err := r.client.readTopic(t.Name, true, false)
+	if err != nil {
+		resp.Diagnostics.AddError("Adopting topic "+t.Name, err.Error())
+		return
+	}
+
+	var problems []string
+	if actual.Partitions > t.Partitions {
+		problems = append(problems, fmt.Sprintf("partitions: existing topic has %d, config wants %d (partition count cannot be decreased)", actual.Partitions, t.Partitions))
+	}
+	if t.ReplicationFactor != -1 && actual.ReplicationFactor != t.ReplicationFactor {
+		problems = append(problems, fmt.Sprintf("replication_factor: existing topic has %d, config wants %d", actual.ReplicationFactor, t.ReplicationFactor))
+	}
+	if err := configAdoptable(actual.Config, t.Config); err != nil {
+		problems = append(problems, err.Error())
+	}
+	if len(problems) > 0 {
+		resp.Diagnostics.AddError(
+			"Topic "+t.Name+" already exists and differs from the configuration",
+			"Refusing to adopt (adopt_existing). Differences: "+strings.Join(problems, "; "),
+		)
+		return
+	}
+
+	if actual.Partitions < t.Partitions {
+		log.Printf("[INFO] Adopted topic %s: increasing partitions from %d to %d", t.Name, actual.Partitions, t.Partitions)
+		if err := r.client.AddPartitions(t); err != nil {
+			resp.Diagnostics.AddError("Adopting topic "+t.Name, err.Error())
+			return
+		}
+		err = waitFor(ctx, "topic "+t.Name+" partitions to increase", r.client.timeout(), time.Second, 2*time.Second, func() (bool, error) {
+			current, err := r.client.ReadTopic(t.Name, true)
+			if err != nil {
+				return false, err
+			}
+			return current.Partitions >= t.Partitions, nil
+		})
+		if err != nil {
+			resp.Diagnostics.AddError("Adopting topic "+t.Name, err.Error())
+			return
+		}
+	}
+
+	log.Printf("[INFO] Adopted existing topic %s into state", t.Name)
+	plan.ID = types.StringValue(t.Name)
+	resp.Diagnostics.Append(resp.State.Set(ctx, *plan)...)
 	resp.Diagnostics.Append(resp.Identity.Set(ctx, topicIdentityModel{Name: plan.Name})...)
 }
 
