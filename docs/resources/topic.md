@@ -109,6 +109,7 @@ terraform import kafka_topic.example example-topic
 
 ### Optional
 
+- `adopt_existing` (Boolean) Adopt the topic into state if it already exists in the cluster instead of failing with TOPIC_ALREADY_EXISTS. The topic is adopted only when it matches this configuration (same replication factor, not fewer partitions, every pinned config key equal); otherwise the apply fails with the differences. Defaults to the provider-level adopt_existing_topics.
 - `config` (Map of String) A map of string k/v attributes.
 
 ### Read-Only

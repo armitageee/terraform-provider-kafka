@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"regexp"
 	"strconv"
 	"testing"
 	"time"
@@ -624,5 +625,237 @@ resource "kafka_topic" "test" {
     "retention.ms" = "11111"
     "segment.ms" = "33333"
   }
+}
+`
+
+// --- adopt_existing (adopt-on-create) ---
+
+func createTopicOutOfBand(t *testing.T, topic Topic) {
+	t.Helper()
+	if os.Getenv("TF_ACC") == "" {
+		t.Skip("acceptance test: TF_ACC not set")
+	}
+	client := testProvider.Meta().(*LazyClient)
+	if err := client.CreateTopic(topic); err != nil {
+		t.Fatalf("could not create topic %s out-of-band: %v", topic.Name, err)
+	}
+	t.Cleanup(func() {
+		_ = client.DeleteTopic(topic.Name)
+	})
+}
+
+func TestAcc_TopicAdopt_Identical(t *testing.T) {
+	t.Parallel()
+	u, err := uuid.GenerateUUID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	topicName := fmt.Sprintf("syslog-%s", u)
+	bs := testBootstrapServers[0]
+	createTopicOutOfBand(t, Topic{
+		Name:              topicName,
+		Partitions:        1,
+		ReplicationFactor: 1,
+		Config: map[string]*string{
+			"retention.ms": stringPtr("11111"),
+			"segment.ms":   stringPtr("22222"),
+		},
+	})
+
+	// A non-empty post-apply plan (default ExpectNonEmptyPlan=false) fails the
+	// test: adopting an identical topic must not leave a perpetual diff.
+	r.Test(t, r.TestCase{
+		ProtoV6ProviderFactories: protoV6ProviderFactories(),
+		PreCheck:                 func() { testAccPreCheck(t) },
+		CheckDestroy:             testAccCheckTopicDestroy,
+		Steps: []r.TestStep{
+			{
+				Config: cfg(t, bs, fmt.Sprintf(testResourceTopic_adoptIdentical, topicName)),
+				Check: r.ComposeTestCheckFunc(
+					r.TestCheckResourceAttr("kafka_topic.test", "partitions", "1"),
+					r.TestCheckResourceAttr("kafka_topic.test", "config.retention.ms", "11111"),
+				),
+			},
+		},
+	})
+}
+
+func TestAcc_TopicAdopt_DifferentConfig(t *testing.T) {
+	t.Parallel()
+	u, err := uuid.GenerateUUID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	topicName := fmt.Sprintf("syslog-%s", u)
+	bs := testBootstrapServers[0]
+	createTopicOutOfBand(t, Topic{
+		Name:              topicName,
+		Partitions:        1,
+		ReplicationFactor: 1,
+		Config:            map[string]*string{"retention.ms": stringPtr("11111")},
+	})
+
+	r.Test(t, r.TestCase{
+		ProtoV6ProviderFactories: protoV6ProviderFactories(),
+		PreCheck:                 func() { testAccPreCheck(t) },
+		Steps: []r.TestStep{
+			{
+				Config:      cfg(t, bs, fmt.Sprintf(testResourceTopic_adoptDifferentConfig, topicName)),
+				ExpectError: regexp.MustCompile("already exists and differs from the configuration"),
+			},
+		},
+	})
+}
+
+func TestAcc_TopicAdopt_PartitionsConverge(t *testing.T) {
+	t.Parallel()
+	u, err := uuid.GenerateUUID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	topicName := fmt.Sprintf("syslog-%s", u)
+	bs := testBootstrapServers[0]
+	createTopicOutOfBand(t, Topic{Name: topicName, Partitions: 1, ReplicationFactor: 1})
+
+	r.Test(t, r.TestCase{
+		ProtoV6ProviderFactories: protoV6ProviderFactories(),
+		PreCheck:                 func() { testAccPreCheck(t) },
+		CheckDestroy:             testAccCheckTopicDestroy,
+		Steps: []r.TestStep{
+			{
+				Config: cfg(t, bs, fmt.Sprintf(testResourceTopic_adoptPartitionsConverge, topicName)),
+				Check:  r.TestCheckResourceAttr("kafka_topic.test", "partitions", "2"),
+			},
+		},
+	})
+}
+
+func TestAcc_TopicAdopt_PartitionsDecrease(t *testing.T) {
+	t.Parallel()
+	u, err := uuid.GenerateUUID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	topicName := fmt.Sprintf("syslog-%s", u)
+	bs := testBootstrapServers[0]
+	createTopicOutOfBand(t, Topic{Name: topicName, Partitions: 2, ReplicationFactor: 1})
+
+	r.Test(t, r.TestCase{
+		ProtoV6ProviderFactories: protoV6ProviderFactories(),
+		PreCheck:                 func() { testAccPreCheck(t) },
+		Steps: []r.TestStep{
+			{
+				Config:      cfg(t, bs, fmt.Sprintf(testResourceTopic_adoptIdentical, topicName)),
+				ExpectError: regexp.MustCompile("partition count cannot be decreased"),
+			},
+		},
+	})
+}
+
+func TestAcc_TopicAdopt_Disabled(t *testing.T) {
+	t.Parallel()
+	u, err := uuid.GenerateUUID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	topicName := fmt.Sprintf("syslog-%s", u)
+	bs := testBootstrapServers[0]
+	createTopicOutOfBand(t, Topic{Name: topicName, Partitions: 1, ReplicationFactor: 1})
+
+	// adopt_existing unset and provider-level adopt_existing_topics unset
+	// (default): the pre-existing behavior, TOPIC_ALREADY_EXISTS.
+	r.Test(t, r.TestCase{
+		ProtoV6ProviderFactories: protoV6ProviderFactories(),
+		PreCheck:                 func() { testAccPreCheck(t) },
+		Steps: []r.TestStep{
+			{
+				Config:      cfg(t, bs, fmt.Sprintf(testResourceTopic_noConfig, topicName)),
+				ExpectError: regexp.MustCompile("already exists"),
+			},
+		},
+	})
+}
+
+func TestAcc_TopicAdopt_ProviderLevel(t *testing.T) {
+	t.Parallel()
+	u, err := uuid.GenerateUUID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	topicName := fmt.Sprintf("syslog-%s", u)
+	bs := testBootstrapServers[0]
+	createTopicOutOfBand(t, Topic{
+		Name:              topicName,
+		Partitions:        1,
+		ReplicationFactor: 1,
+		Config: map[string]*string{
+			"retention.ms": stringPtr("11111"),
+			"segment.ms":   stringPtr("22222"),
+		},
+	})
+
+	// The resource has no adopt_existing attribute: the provider-level
+	// adopt_existing_topics=true applies.
+	r.Test(t, r.TestCase{
+		ProtoV6ProviderFactories: protoV6ProviderFactories(),
+		PreCheck:                 func() { testAccPreCheck(t) },
+		CheckDestroy:             testAccCheckTopicDestroy,
+		Steps: []r.TestStep{
+			{
+				Config: requiredProviders() + fmt.Sprintf(`
+provider "kafka" {
+  bootstrap_servers     = ["%s"]
+  adopt_existing_topics = true
+}
+
+resource "kafka_topic" "test" {
+  name               = "%s"
+  replication_factor = 1
+  partitions         = 1
+
+  config = {
+    "retention.ms" = "11111"
+    "segment.ms"   = "22222"
+  }
+}
+`, bs, topicName),
+			},
+		},
+	})
+}
+
+const testResourceTopic_adoptIdentical = `
+resource "kafka_topic" "test" {
+  name               = "%s"
+  replication_factor = 1
+  partitions         = 1
+  adopt_existing     = true
+
+  config = {
+    "retention.ms" = "11111"
+    "segment.ms"   = "22222"
+  }
+}
+`
+
+const testResourceTopic_adoptDifferentConfig = `
+resource "kafka_topic" "test" {
+  name               = "%s"
+  replication_factor = 1
+  partitions         = 1
+  adopt_existing     = true
+
+  config = {
+    "retention.ms" = "33333"
+  }
+}
+`
+
+const testResourceTopic_adoptPartitionsConverge = `
+resource "kafka_topic" "test" {
+  name               = "%s"
+  replication_factor = 1
+  partitions         = 2
+  adopt_existing     = true
 }
 `

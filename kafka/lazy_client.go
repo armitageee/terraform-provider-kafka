@@ -74,6 +74,16 @@ func (c *LazyClient) ReadTopic(name string, refresh_metadata bool) (Topic, error
 	return c.inner.ReadTopic(name, refresh_metadata)
 }
 
+// readTopic is ReadTopic with control over the default-config filtering;
+// filterDefaults=false returns the raw describe result (adopt-on-create).
+func (c *LazyClient) readTopic(name string, refreshMetadata, filterDefaults bool) (Topic, error) {
+	err := c.init()
+	if err != nil {
+		return Topic{}, err
+	}
+	return c.inner.readTopic(name, refreshMetadata, filterDefaults)
+}
+
 func (c *LazyClient) UpdateTopic(t Topic) error {
 	err := c.init()
 	if err != nil {

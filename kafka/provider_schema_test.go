@@ -40,8 +40,8 @@ func TestProviderSchemas(t *testing.T) {
 	if v := schemas.ResourceSchemas["kafka_acl"].Version; v != 1 {
 		t.Errorf("kafka_acl schema version = %d, want 1 (state upgrade from 0)", v)
 	}
-	if n := len(schemas.Provider.Block.Attributes); n != 37 {
-		t.Errorf("provider has %d attributes, want 37", n)
+	if n := len(schemas.Provider.Block.Attributes); n != 38 {
+		t.Errorf("provider has %d attributes, want 38", n)
 	}
 
 	ids, err := srv.GetResourceIdentitySchemas(ctx, &tfprotov6.GetResourceIdentitySchemasRequest{})

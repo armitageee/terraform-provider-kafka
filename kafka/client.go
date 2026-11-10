@@ -17,6 +17,12 @@ type TopicMissingError struct {
 
 func (e TopicMissingError) Error() string { return e.msg }
 
+// ErrTopicAlreadyExists is returned by CreateTopic when the broker rejects the
+// creation because a topic with that name already exists. It is a sentinel:
+// errors.Is matches it, so callers (adopt-on-create) can tell "already there"
+// apart from real failures.
+var ErrTopicAlreadyExists = errors.New("topic already exists")
+
 type void struct{}
 
 var member void
@@ -320,6 +326,9 @@ func (c *Client) CreateTopic(t Topic) error {
 	if err == nil {
 		for _, e := range res.TopicErrors {
 			if e.Err != sarama.ErrNoError {
+				if e.Err == sarama.ErrTopicAlreadyExists {
+					return fmt.Errorf("%s: %w", t.Name, ErrTopicAlreadyExists)
+				}
 				return fmt.Errorf("%s", e.Err)
 			}
 		}
@@ -519,6 +528,12 @@ func isPartitionRFChanging(status *sarama.PartitionReplicaReassignmentsStatus) b
 }
 
 func (client *Client) ReadTopic(name string, refreshMetadata bool) (Topic, error) {
+	return client.readTopic(name, refreshMetadata, true)
+}
+
+// readTopic reads a topic from Kafka; filterDefaults selects whether the
+// config map is filtered down to entries set on the topic itself.
+func (client *Client) readTopic(name string, refreshMetadata, filterDefaults bool) (Topic, error) {
 	c := client.client
 	log.Printf("[INFO] 👋 reading topic '%s' from Kafka: %v", name, refreshMetadata)
 
@@ -566,7 +581,7 @@ func (client *Client) ReadTopic(name string, refreshMetadata bool) (Topic, error
 			log.Printf("[DEBUG] [%s] ReplicationFactor %d from Kafka", name, r)
 			topic.ReplicationFactor = int16(r)
 
-			configToSave, err := client.topicConfig(name)
+			configToSave, err := client.topicConfig(name, filterDefaults)
 			if err != nil {
 				log.Printf("[ERROR] [%s] Could not get config for topic %s", name, err)
 				return topic, err
@@ -593,8 +608,11 @@ func (c *Client) versionForKey(apiKey, wantedMaxVersion int) int {
 	return 0
 }
 
-// topicConfig retrives the non-default config map for a topic
-func (c *Client) topicConfig(topic string) (map[string]*string, error) {
+// topicConfig retrives the config map for a topic. With filterDefaults the
+// entries inherited from defaults (see isDefault) are dropped; without it the
+// raw describe result is returned (used by adopt-on-create to compare a topic
+// against the planned config, including keys pinned to a default value).
+func (c *Client) topicConfig(topic string, filterDefaults bool) (map[string]*string, error) {
 	conf := map[string]*string{}
 	request := &sarama.DescribeConfigsRequest{
 		Version: c.getDescribeConfigAPIVersion(),
@@ -633,13 +651,13 @@ func (c *Client) topicConfig(topic string) (map[string]*string, error) {
 				log.Printf("[TRACE] Syonyms: %v", s)
 			}
 
-			if tConf.Name == "segment.bytes" && c.config.isAWSMSKServerless() {
+			if filterDefaults && tConf.Name == "segment.bytes" && c.config.isAWSMSKServerless() {
 				// Remove segment.bytes in AWS MSK Serverless response to prevent perpetual planning
 				log.Printf("[TRACE] [%s] Using AWS MSK Serverless. Skipping segment.bytes config", topic)
 				continue
 			}
 
-			if isDefault(tConf, int(cr.Version)) {
+			if filterDefaults && isDefault(tConf, int(cr.Version)) {
 				continue
 			}
 			conf[tConf.Name] = &v

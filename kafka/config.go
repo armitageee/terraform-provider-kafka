@@ -49,6 +49,7 @@ type Config struct {
 	SASLAWSSharedConfigFiles               *[]string
 	SASLOAuthScopes                        []string
 	SASLGSSAPI                             GSSAPIConfig
+	AdoptExistingTopics                    bool
 }
 
 type OAuth2Config interface {
@@ -365,6 +366,7 @@ func (config *Config) copyWithMaskedSensitiveValues() Config {
 		config.SASLAWSSharedConfigFiles,
 		config.SASLOAuthScopes,
 		config.SASLGSSAPI.masked(),
+		config.AdoptExistingTopics,
 	}
 	return copy
 }
